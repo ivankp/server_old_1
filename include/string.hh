@@ -19,16 +19,36 @@ inline std::string cat() noexcept { return { }; }
 inline std::string cat(std::string x) noexcept { return x; }
 inline std::string cat(const char* x) noexcept { return x; }
 
+namespace detail::cat {
+
+template <typename T>
+[[ gnu::always_inline ]]
+inline size_t size(T& x) noexcept {
+  if constexpr (std::is_same_v<T,char>)
+    return 1;
+  else
+    return x.size();
+}
+
+}
+
 template <typename... T>
 [[ gnu::always_inline ]]
 inline std::string cat(T&&... x) {
-  if constexpr ((std::is_convertible_v<T&&,std::string_view> && ...)) {
+  if constexpr ((... && (
+    std::is_convertible_v<T,std::string_view> ||
+    std::is_same_v<std::decay_t<T>,char>
+  ))) {
     return [](auto... x){
       std::string s;
-      s.reserve((... + x.size()));
-      (s.append(x),...);
+      s.reserve((... + detail::cat::size(x)));
+      (s += ... += x);
       return s;
-    }(std::string_view(std::forward<T>(x))...);
+    }(std::conditional_t<
+        std::is_convertible_v<T,std::string_view>,
+        std::string_view, T
+      >(x) ...
+    );
   } else {
     std::stringstream s;
     (s << ... << std::forward<T>(x));

@@ -109,7 +109,7 @@ int main(int argc, char* argv[]) {
           http::send_file(sock,cat("share/",path));
         }
       } else if (!strcmp(req.method,"POST")) { // ===================
-        if (!strcmp(path,"login")) {
+        if (!strcmp(req.path,"login")) {
           if (req.data.empty()) { // Logout
             sock <<
               "HTTP/1.1 303 See Other\r\n"
@@ -119,34 +119,36 @@ int main(int argc, char* argv[]) {
               "; expires=Thu, 01 Jan 1970 00:00:00 GMT\r\n"
               "Connection: close\r\n\r\n";
             if (user) {
-              INFO("32","logged out user ",user->name," (",user->id,")");
+              INFO("32","logged out user ",user->name," (",user->id,')');
             } else {
               INFO("32","logged out nobody");
             }
           } else { // Login
             const auto form_data = http::form_data(req.data,!'?');
-            const auto* user = [](const char* name)
-            -> const users_map::value_type* {
-              for (const auto& user : users)
-                if (user.second.name == name) return &user;
-              return nullptr;
-            }(form_data["username"]);
-            if (user) {
+            const char* const name = form_data["username"];
+            const std::string* cookie = nullptr;
+            for (const auto& [c,user] : users) {
+              if (user.name == name) {
+                cookie = &c;
+                break;
+              }
+            }
+            if (cookie) {
               sock << cat(
                 "HTTP/1.1 303 See Other\r\n"
                 "Location: /\r\n"
-                "Set-Cookie: login=",user->first,
+                "Set-Cookie: login=",*cookie,
                 "; Max-Age=2147483647"
                 "; Path=/\r\n"
                 "Connection: close\r\n\r\n"
               );
-              INFO("32","logged in user ",user->second.name);
+              INFO("32","logged in user ",name);
             } else {
               sock <<
                 "HTTP/1.1 303 See Other\r\n"
                 "Location: /\r\n"
                 "Connection: close\r\n\r\n";
-              INFO("32","failed to log in user ",form_data["username"]);
+              INFO("32","failed to log in user ",name);
             }
           }
         } else {
