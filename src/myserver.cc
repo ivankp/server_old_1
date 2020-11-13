@@ -93,15 +93,14 @@ int main(int argc, char* argv[]) {
                 HTTP_ERROR(403,
                   "path \"",path,"\" contains a disallowed character "
                   "\'",c,"\'");
-              }
+              } else
               // disallow ..
               if (c=='.' && (p==path || *(p-1)=='/')) {
-                const char* p0 = (p==path) ? p : p-1;
                 while (*++p=='.') { }
                 if (*p=='/' || *p=='\0') {
                   HTTP_ERROR(403,
-                    "path \"",path,"\" contains a disallowed sequence "
-                    "\"",std::string_view(p0, *p ? p+1 : p),"\"");
+                    "path \"",path,"\" contains a disallowed sequence \"",
+                    std::string_view((p==path ? p : p-1),(*p ? p+1 : p)),"\"");
                 } else --p;
               }
             } else break;
