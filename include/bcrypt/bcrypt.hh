@@ -21,7 +21,7 @@ std::string bcrypt_hash(
     throw std::runtime_error("bcrypt failed to salt");
   if (!crypt_rn(pw, salt, hash, sizeof(hash)))
     throw std::runtime_error("bcrypt failed to hash");
-  return { hash, sizeof(hash) };
+  return { hash, 60 };
 }
 
 bool bcrypt_check(const char* pw, const char* hash0) {
@@ -29,14 +29,11 @@ bool bcrypt_check(const char* pw, const char* hash0) {
   if (!crypt_rn(pw, hash0, hash, sizeof(hash)))
     throw std::runtime_error("bcrypt failed to hash");
 
-  const unsigned char
-    *u1 = reinterpret_cast<const unsigned char*>(hash0),
-    *u2 = reinterpret_cast<const unsigned char*>(hash);
-
   // constant time string comparison
   int cmp = 0;
-  for (int i=0; i<64; ++i)
-    cmp |= (u1[i] ^ u2[i]);
+  for (int i=0; i<60; ++i)
+    cmp |= ( reinterpret_cast<const unsigned char*>(hash0)[i] ^
+             reinterpret_cast<const unsigned char*>(hash )[i] );
 
   return !cmp;
 }

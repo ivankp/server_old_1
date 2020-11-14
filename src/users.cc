@@ -25,13 +25,14 @@ users_table::users_table(const char* filename) {
     if (::close(fd) == -1) THROW_ERRNO("close()");
 
     // create hash tables
-    for (const char *p=m, *end=p+m_len; p!=end; ) {
-      if (p > end) ERROR(filename," file is corrupted");
+    for (const char *p=m, *end=p+m_len; ; ) {
       by_cookie.emplace(p,p+cookie_len);
       p += prefix_len;
       const std::string_view name(p);
       by_name.emplace(name);
       p += name.size()+1;
+      if (p==end) break;
+      if (p > end) ERROR(filename," file is corrupted");
     }
   } else {
     m = nullptr;

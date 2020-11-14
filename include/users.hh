@@ -14,7 +14,7 @@ class users_table {
 public:
   static constexpr unsigned
     cookie_len = 16,
-        pw_len = 64,
+        pw_len = 60,
     prefix_len = cookie_len + pw_len;
 
   explicit users_table() noexcept: m(nullptr), m_len(0) { }
