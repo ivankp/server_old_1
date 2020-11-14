@@ -11,7 +11,9 @@ DEPFLAGS = -MT $@ -MMD -MP -MF .build/$*.d
 
 #####################################################################
 
-all: bin/myserver
+all: $(patsubst %, bin/%, \
+  myserver user \
+)
 
 #####################################################################
 
@@ -20,6 +22,10 @@ bin/myserver: $(patsubst %, .build/%.o, \
 )
 LF_myserver := -pthread
 L_myserver := -lssl -lcrypto
+
+bin/user: $(patsubst %, .build/%.o, \
+  users \
+)
 
 #####################################################################
 

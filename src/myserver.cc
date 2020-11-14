@@ -24,12 +24,11 @@ std::string whole_file(const char* filename) {
   return str;
 }
 
-users_map users;
-const user_def* cookie_login(const http::request& req) {
-  for (const char* cookie : req["Cookie"]) {
+users_table users;
+const char* cookie_login(const http::request& req) {
+  for (const char* cookie : req["Cookie"])
     if (starts_with(cookie,"login="))
-      return find_user(users,cookie+6);
-  }
+      return users.cookie_login(cookie+6);
   return nullptr;
 };
 
@@ -39,7 +38,7 @@ int main(int argc, char* argv[]) {
   const unsigned epoll_nevents = 64;
   const size_t thread_buffer_size = 1<<13;
 
-  users = read_users("db/users");
+  users = users_table("db/users");
 
   server server(server_port,epoll_nevents);
   cout << "Listening on port " << server_port <<'\n'<< std::endl;
@@ -65,22 +64,23 @@ int main(int argc, char* argv[]) {
 #endif
 
       const char* path = g.path()+1;
-      const auto user = cookie_login(req);
       if (!strcmp(req.method,"GET")) { // ===========================
         if (*path=='\0') { // serve index page ----------------------
+          const char* user = cookie_login(req);
           if (!user) { // not logged in
             http::send_file(sock,"pages/index.html");
           } else { // logged in
-            TEST(user->id)
+            TEST(user)
             auto page = whole_file("pages/index_user.html");
             static constexpr char token[] = "<!-- GLOBAL_VARS_JS -->";
             page.replace(page.find(token),sizeof(token)-1,cat(
-              "\nconst user = {id:",user->id,",name:\"",user->name,"\"};\n"
+              "\nconst user = \"",user,"\"};\n"
             ));
             sock <<
               (http::header("text/html; charset=UTF-8",page.size()) + page);
           }
         } else if (!strcmp(path,"chat")) { // initiate websocket ----
+          // const char* user = cookie_login(req); // require login
           websocket::handshake(sock, req);
           server.epoll_add(std::move(sock)); // move prevents closing
         } else { // serve any allowed file --------------------------
@@ -118,37 +118,31 @@ int main(int argc, char* argv[]) {
               "; Path=/"
               "; expires=Thu, 01 Jan 1970 00:00:00 GMT\r\n"
               "Connection: close\r\n\r\n";
+            const char* user = cookie_login(req);
             if (user) {
-              INFO("32","logged out user ",user->name," (",user->id,')');
+              INFO("32","logged out user ",user);
             } else {
               INFO("32","logged out nobody");
             }
           } else { // Login
             const auto form_data = http::form_data(req.data,!'?');
-            const char* const name = form_data["username"];
-            const std::string* cookie = nullptr;
-            for (const auto& [c,user] : users) {
-              if (user.name == name) {
-                cookie = &c;
-                break;
-              }
-            }
-            if (cookie) {
+            const char* const user = users.pw_login(form_data["username"],{});
+            if (user) {
               sock << cat(
                 "HTTP/1.1 303 See Other\r\n"
                 "Location: /\r\n"
-                "Set-Cookie: login=",*cookie,
+                "Set-Cookie: login=",get_cookie(user),
                 "; Max-Age=2147483647"
                 "; Path=/\r\n"
                 "Connection: close\r\n\r\n"
               );
-              INFO("32","logged in user ",name);
+              INFO("32","logged in user ",user);
             } else {
               sock <<
                 "HTTP/1.1 303 See Other\r\n"
                 "Location: /\r\n"
                 "Connection: close\r\n\r\n";
-              INFO("32","failed to log in user ",name);
+              INFO("32","failed to log in user ",user);
             }
           }
         } else {

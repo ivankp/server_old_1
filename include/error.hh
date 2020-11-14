@@ -25,7 +25,6 @@ struct error: std::runtime_error {
 
 #define ERROR(...) throw ivanp::error(IVANP_ERROR_PREF, __VA_ARGS__);
 
-#define THROW_ERRNO(str) \
-  throw ivanp::error(IVANP_ERROR_PREF str ": ", std::strerror(errno));
+#define THROW_ERRNO(...) ERROR(__VA_ARGS__,": ",std::strerror(errno))
 
 #endif
