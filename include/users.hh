@@ -14,9 +14,8 @@ class users_table {
 public:
   static constexpr unsigned
     cookie_len = 16,
-      salt_len =  8,
-        pw_len = 12,
-    prefix_len = cookie_len + salt_len + pw_len;
+        pw_len = 64,
+    prefix_len = cookie_len + pw_len;
 
   explicit users_table() noexcept: m(nullptr), m_len(0) { }
   explicit users_table(const char* filename);

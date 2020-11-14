@@ -26,6 +26,7 @@ users_table::users_table(const char* filename) {
 
     // create hash tables
     for (const char *p=m, *end=p+m_len; p!=end; ) {
+      if (p > end) ERROR(filename," file is corrupted");
       by_cookie.emplace(p,p+cookie_len);
       p += prefix_len;
       const std::string_view name(p);

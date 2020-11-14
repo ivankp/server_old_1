@@ -7,8 +7,9 @@
 #include <algorithm>
 #include <functional>
 #include <iterator>
-#include <cstdint>
+#include <limits>
 
+#include "bcrypt/bcrypt.hh"
 #include "users.hh"
 #include "debug.hh"
 
@@ -63,17 +64,28 @@ int main(int argc, char* argv[]) {
   TEST(cookie)
   const auto pw = rndstr(12);
 
-  std::uniform_int_distribution<uint64_t> dist_uint64(0);
+  std::uniform_int_distribution<char> dist_char(
+    std::numeric_limits<char>::min(),
+    std::numeric_limits<char>::max()
+  );
 
-  const auto salt = dist_uint64(gen);
-  TEST(salt)
+  char salt[16];
+  std::generate_n(salt,sizeof(salt),[&]{ return dist_char(gen); });
+
+  const auto hash = bcrypt_hash(pw.c_str(),salt,sizeof(salt));
+  TEST(hash)
+
+#ifndef NDEBUG
+  if (!bcrypt_check(pw.c_str(),hash.c_str())) {
+    cout << "hash check failed\n";
+    return 1;
+  }
+#endif
 
   const std::string_view user = users[argv[1]];
   if (!user.data()) {
-    std::ofstream out(db, std::ios_base::app);
-    out << cookie;
-    out.write(reinterpret_cast<const char*>(&salt),sizeof(salt));
-    out << pw << argv[1] << '\0';
+    std::ofstream(db, std::ios_base::app)
+      << cookie << hash << argv[1] << '\0';
 
     cout << "created new user\n";
   } else {
