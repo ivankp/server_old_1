@@ -13,8 +13,8 @@ class users_table {
 
 public:
   static constexpr unsigned
-    cookie_len = 16,
         pw_len = 60,
+    cookie_len = 16,
     prefix_len = cookie_len + pw_len;
 
   explicit users_table() noexcept: m(nullptr), m_len(0) { }
@@ -39,12 +39,11 @@ public:
 
   bool empty() const noexcept { return m; }
 
-  std::string_view operator[](std::string_view name) const noexcept;
+  const char* operator[](std::string_view name) const noexcept;
 };
 
 inline std::string_view get_cookie(const char* name) noexcept {
-  const char* const cookie = name - users_table::prefix_len;
-  return { cookie, cookie + users_table::cookie_len };
+  return { name-users_table::cookie_len, users_table::cookie_len };
 }
 
 #endif

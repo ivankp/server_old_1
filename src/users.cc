@@ -26,11 +26,11 @@ users_table::users_table(const char* filename) {
 
     // create hash tables
     for (const char *p=m, *end=p+m_len; ; ) {
-      by_cookie.emplace(p,p+cookie_len);
-      p += prefix_len;
-      const std::string_view name(p);
-      by_name.emplace(name);
-      p += name.size()+1;
+      if (end-p < prefix_len+2) ERROR(filename," file is corrupted");
+      p += pw_len;
+      by_cookie.emplace(p,cookie_len);
+      p += cookie_len;
+      p += by_name.emplace(p).first->size()+1;
       if (p==end) break;
       if (p > end) ERROR(filename," file is corrupted");
     }
@@ -47,17 +47,18 @@ users_table::~users_table() {
 const char*
 users_table::pw_login(std::string_view name, std::string_view pw) const {
   const auto user = by_name.find(name);
+  if (user == by_name.end()) return nullptr;
   // TODO: check password
-  return user != by_cookie.end() ? user->data() : nullptr;
+  return user->data();
 }
 const char*
 users_table::cookie_login(std::string_view cookie) const {
   const auto user = by_cookie.find(cookie);
-  return user != by_cookie.end() ? user->data()+prefix_len : nullptr;
+  return user != by_cookie.end() ? user->data()+cookie_len : nullptr;
 }
 
-std::string_view
+const char*
 users_table::operator[](std::string_view name) const noexcept {
   const auto user = by_name.find(name);
-  return user != by_cookie.end() ? *user : std::string_view();
+  return user != by_name.end() ? user->data() : nullptr;
 }

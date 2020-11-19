@@ -27,7 +27,7 @@ LF_myserver := -pthread
 L_myserver := -lssl -lcrypto
 
 bin/user: .build/users.o lib/libbcrypt.so
-C_user := -DNDEBUG
+# C_user := -DNDEBUG
 LF_user := -Llib -Wl,-rpath=lib
 L_user := -lbcrypt
 

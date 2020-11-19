@@ -58,6 +58,13 @@ inline std::string cat(T&&... x) {
 
 // ------------------------------------------------------------------
 
+inline const char* cstr(const char* x) noexcept { return x; }
+inline char* cstr(char* x) noexcept { return x; }
+inline const char* cstr(const std::string& x) noexcept { return x.data(); }
+inline char* cstr(std::string& x) noexcept { return x.data(); }
+
+// ------------------------------------------------------------------
+
 struct chars_less {
   using is_transparent = void;
   bool operator()(const char* a, const char* b) const noexcept {
@@ -87,12 +94,6 @@ inline bool ends_with(const char* str, const char* suffix) noexcept {
   if (n1<n2) return false;
   return starts_with(str+(n1-n2),suffix);
 }
-
-// ------------------------------------------------------------------
-
-inline const char* cstr(const char* x) noexcept { return x; }
-inline const char* cstr(const std::string& x) noexcept { return x.c_str(); }
-inline const char* cstr(std::string_view x) noexcept { return x.data(); }
 
 } // end namespace ivanp
 

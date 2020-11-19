@@ -46,7 +46,8 @@ int main(int argc, char* argv[]) {
     std::chrono::system_clock::now().time_since_epoch().count());
 
   auto rndstr = [
-    &gen, dist = std::uniform_int_distribution<>(0,sizeof(charset)-1)
+    &gen, dist = std::uniform_int_distribution<>(0,sizeof(charset)-2)
+    // -2 because charset ends in \0
   ](unsigned len) mutable {
     std::string str;
     str.reserve(len);
@@ -82,16 +83,17 @@ int main(int argc, char* argv[]) {
   }
 #endif
 
-  const std::string_view user = users[argv[1]];
-  if (!user.data()) {
+  const char* user = users[argv[1]];
+  if (!user) {
+    user = argv[1];
     std::ofstream(db, std::ios_base::app)
-      << cookie << hash << argv[1] << '\0';
+      << hash << cookie << user << '\0';
 
     cout << "created new user\n";
   } else {
     cout << "updated existing user\n";
   }
 
-  cout << "\nusername: " << argv[1]
+  cout << "\nusername: " << user
        << "\npassword: " << pw << '\n';
 }
