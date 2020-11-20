@@ -1,7 +1,7 @@
 #ifndef IVANP_BCRYPT_HH
 #define IVANP_BCRYPT_HH
 
-#include <string>
+#include <cstring>
 #include <stdexcept>
 
 extern "C" {
@@ -11,8 +11,10 @@ char* crypt_gensalt_rn(
   char* output, int output_size);
 }
 
-std::string bcrypt_hash(
-  const char* pw, const char* rand, int nrand /*16*/, int work = 12
+constexpr unsigned bcrypt_hash_len = 60;
+
+void bcrypt_hash(
+  char* m, const char* pw, const char* rand, int nrand /*16*/, int work = 12
 ) {
   char salt[64];
   char hash[64];
@@ -21,7 +23,7 @@ std::string bcrypt_hash(
     throw std::runtime_error("bcrypt failed to salt");
   if (!crypt_rn(pw, salt, hash, sizeof(hash)))
     throw std::runtime_error("bcrypt failed to hash");
-  return { hash, 60 };
+  ::memcpy(m,hash,bcrypt_hash_len);
 }
 
 bool bcrypt_check(const char* pw, const char* hash0) {
@@ -31,7 +33,7 @@ bool bcrypt_check(const char* pw, const char* hash0) {
 
   // constant time string comparison
   int cmp = 0;
-  for (int i=0; i<60; ++i)
+  for (unsigned i=0; i<bcrypt_hash_len; ++i)
     cmp |= ( reinterpret_cast<const unsigned char*>(hash0)[i] ^
              reinterpret_cast<const unsigned char*>(hash )[i] );
 

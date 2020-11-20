@@ -9,18 +9,12 @@
 #include <iterator>
 #include <limits>
 
-#include "bcrypt/bcrypt.hh"
 #include "users.hh"
 #include "debug.hh"
 
 using std::cout;
 using std::endl;
 namespace fs = std::filesystem;
-
-constexpr char charset[] =
-  "0123456789"
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-  "abcdefghijklmnopqrstuvwxyz";
 
 int main(int argc, char* argv[]) {
   if (argc!=2) {
@@ -97,3 +91,4 @@ int main(int argc, char* argv[]) {
   cout << "\nusername: " << user
        << "\npassword: " << pw << '\n';
 }
+
