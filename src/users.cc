@@ -220,6 +220,7 @@ void users_table::reset_cookie(const char* name) {
   reset_cookie_impl(m+u);
   u -= cookie_len;
   if (::pwrite(fd,m+u,cookie_len,u) == -1) THROW_ERRNO("pwrite()");
+  if (::fsync(fd) == -1) THROW_ERRNO("fsync()");
 }
 void users_table::reset_pw(const char* name, const char* pw) {
   unsigned u = find_by_name(name);
@@ -227,6 +228,7 @@ void users_table::reset_pw(const char* name, const char* pw) {
   reset_pw_impl(m+u,pw);
   u -= prefix_len;
   if (::pwrite(fd,m+u,prefix_len,u) == -1) THROW_ERRNO("pwrite()");
+  if (::fsync(fd) == -1) THROW_ERRNO("fsync()");
 }
 
 const char* users_table::new_user(const char* name, const char* pw) {
@@ -250,6 +252,7 @@ const char* users_table::new_user(const char* name, const char* pw) {
   reset_pw_impl(user,pw);
 
   if (::write(fd,user-prefix_len,user_len) == -1) THROW_ERRNO("write()");
+  if (::fsync(fd) == -1) THROW_ERRNO("fsync()");
 
   // index the new user
   const auto pos_name = std::upper_bound(
