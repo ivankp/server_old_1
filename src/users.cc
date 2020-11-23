@@ -76,6 +76,37 @@ void rotate_right(auto a, auto b) noexcept {
   std::rotate(rb, rb+1, std::make_reverse_iterator(a));
 }
 
+struct name_cmp {
+  const char* m;
+  bool operator()(unsigned a, unsigned b) const noexcept {
+    return strcmp(m+a,m+b) < 0;
+  }
+  bool operator()(unsigned a, const char* b) const noexcept {
+    return strcmp(m+a,b) < 0;
+  }
+  bool operator()(const char* a, unsigned b) const noexcept {
+    return strcmp(a,m+b) < 0;
+  }
+  bool operator()(const char* a, const char* b) const noexcept {
+    return strcmp(a,b) < 0;
+  }
+};
+struct cookie_cmp {
+  const char* m;
+  bool operator()(unsigned a, unsigned b) const noexcept {
+    return memcmp(m+a,m+b,users_table::cookie_len) < 0;
+  }
+  bool operator()(unsigned a, const char* b) const noexcept {
+    return memcmp(m+a,b,users_table::cookie_len) < 0;
+  }
+  bool operator()(const char* a, unsigned b) const noexcept {
+    return memcmp(a,m+b,users_table::cookie_len) < 0;
+  }
+  bool operator()(const char* a, const char* b) const noexcept {
+    return memcmp(a,b,users_table::cookie_len) < 0;
+  }
+};
+
 } // end namespace
 
 std::string rndstr(unsigned len) noexcept {
@@ -112,12 +143,8 @@ users_table::users_table(const char* filename) {
       if (p > end) ERROR(filename," file is corrupted");
     }
 
-    std::sort(by_name,by_name+u_len,[this](unsigned a, unsigned b){
-      return strcmp(m+a,m+b) < 0;
-    });
-    std::sort(by_cookie,by_cookie+u_len,[this](unsigned a, unsigned b){
-      return memcmp(m+a,m+b,cookie_len) < 0;
-    });
+    std::sort(by_name,by_name+u_len,name_cmp{m});
+    std::sort(by_cookie,by_cookie+u_len,cookie_cmp{m});
   }
 }
 
@@ -148,20 +175,16 @@ unsigned users_table::find_by_name(const char* name) const noexcept {
   if (m < name && name < (m+f_len)) return name-m;
   auto a = by_name;
   const auto b = a + u_len;
-  a = std::lower_bound(a, b, name,
-    [this](unsigned u, const char* name){
-      return strcmp(m+u,name) < 0;
-    });
-  return (a==b || strcmp(name,m+*a)<0) ? 0 : *a;
+  auto cmp = name_cmp{m};
+  a = std::lower_bound(a, b, name, cmp);
+  return (a==b || cmp(name,*a)) ? 0 : *a;
 }
 unsigned users_table::find_by_cookie(const char* cookie) const noexcept {
   auto a = by_cookie;
   const auto b = a + u_len;
-  a = std::lower_bound(a, b, cookie,
-    [this](unsigned u, const char* cookie){
-      return memcmp(m+u,cookie,cookie_len) < 0;
-    });
-  return (a==b || memcmp(cookie,m+*a,cookie_len)<0) ? 0 : *a+cookie_len;
+  auto cmp = cookie_cmp{m};
+  a = std::lower_bound(a, b, cookie, cmp);
+  return (a==b || cmp(cookie,*a)) ? 0 : *a+cookie_len;
 }
 
 const char* users_table::cookie_login(const char* cookie) const noexcept {
@@ -182,9 +205,7 @@ void users_table::reset_cookie_impl(char* user) noexcept {
       break;
     }
   }
-  std::sort(by_cookie,by_cookie+u_len,[this](unsigned a, unsigned b){
-    return memcmp(m+a,m+b,cookie_len) < 0;
-  });
+  std::sort(by_cookie,by_cookie+u_len,cookie_cmp{m});
 }
 void users_table::reset_pw_impl(char* user, const char* pw) {
   char salt[16];
@@ -232,15 +253,9 @@ const char* users_table::new_user(const char* name, const char* pw) {
 
   // index the new user
   const auto pos_name = std::upper_bound(
-    by_name, by_name+u_len, user,
-    [this](const char* name, unsigned u){
-      return strcmp(m+u,name) < 0;
-    });
+    by_name, by_name+u_len, user, name_cmp{m});
   const auto pos_cookie = std::upper_bound(
-    by_cookie, by_cookie+u_len, user-cookie_len,
-    [this](const char* cookie, unsigned u){
-      return memcmp(m+u,cookie,cookie_len) < 0;
-    });
+    by_cookie, by_cookie+u_len, user-cookie_len, cookie_cmp{m});
   append_user(user);
   rotate_right(pos_name,by_name+u_len);
   rotate_right(pos_cookie,by_cookie+u_len);
