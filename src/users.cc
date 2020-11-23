@@ -15,7 +15,7 @@
 
 #include "bcrypt/bcrypt.hh"
 #include "error.hh"
-#include "debug.hh"
+// #include "debug.hh"
 
 namespace {
 
@@ -93,7 +93,7 @@ users_table::users_table(const char* filename) {
   f_len = sb.st_size;
   m_len = std::max(
     next_pow2(f_len),
-    next_pow2(max_user_len) //* 8
+    next_pow2(max_user_len) * 8
   );
   m = static_cast<char*>(malloc(m_len));
   if (::read(fd,m,f_len) == -1) THROW_ERRNO("read()");
@@ -145,27 +145,22 @@ void users_table::append_user(const char* user) {
 }
 
 unsigned users_table::find_by_name(const char* name) const noexcept {
-  TEST(name)
   if (m < name && name < (m+f_len)) return name-m;
   auto a = by_name;
   const auto b = a + u_len;
-  const auto cmp = [this](unsigned u, const char* name){
-    return strcmp(m+u,name) < 0;
-  };
-  a = std::lower_bound(a, b, name, cmp);
-  TEST(*a)
+  a = std::lower_bound(a, b, name,
+    [this](unsigned u, const char* name){
+      return strcmp(m+u,name) < 0;
+    });
   return (a==b || strcmp(name,m+*a)<0) ? 0 : *a;
 }
 unsigned users_table::find_by_cookie(const char* cookie) const noexcept {
   auto a = by_cookie;
   const auto b = a + u_len;
-  TEST(u_len)
-  const auto cmp = [this](unsigned u, const char* cookie){
-    TEST(std::string_view(m+u,cookie_len))
-    TEST(std::string_view(cookie,cookie_len))
-    return memcmp(m+u,cookie,cookie_len) < 0;
-  };
-  a = std::lower_bound(a, b, cookie, cmp);
+  a = std::lower_bound(a, b, cookie,
+    [this](unsigned u, const char* cookie){
+      return memcmp(m+u,cookie,cookie_len) < 0;
+    });
   return (a==b || memcmp(cookie,m+*a,cookie_len)<0) ? 0 : *a+cookie_len;
 }
 
@@ -181,15 +176,12 @@ const char* users_table::pw_login(const char* name, const char* pw) const {
 void users_table::reset_cookie_impl(char* user) noexcept {
   char tmp[cookie_len];
   for (;;) { // generate unique cookie
-    TEST(get_cookie(user))
     rndstr(tmp,cookie_len);
     if (!find_by_cookie(tmp)) {
       memcpy(user-cookie_len,tmp,cookie_len);
-      TEST(get_cookie(user))
       break;
     }
   }
-
   std::sort(by_cookie,by_cookie+u_len,[this](unsigned a, unsigned b){
     return memcmp(m+a,m+b,cookie_len) < 0;
   });
@@ -197,9 +189,7 @@ void users_table::reset_cookie_impl(char* user) noexcept {
 void users_table::reset_pw_impl(char* user, const char* pw) {
   char salt[16];
   std::generate_n(salt,sizeof(salt),[]{ return char_dist(rng); });
-  TEST(__LINE__)
   bcrypt_hash(user-prefix_len,pw,salt,sizeof(salt));
-  TEST(__LINE__)
   reset_cookie_impl(user);
 }
 
@@ -212,12 +202,9 @@ void users_table::reset_cookie(const char* name) {
 }
 void users_table::reset_pw(const char* name, const char* pw) {
   unsigned u = find_by_name(name);
-  TEST(u)
-  TEST(m+u-prefix_len)
   // TODO: block
   reset_pw_impl(m+u,pw);
   u -= prefix_len;
-  TEST(m+u)
   if (::pwrite(fd,m+u,prefix_len,u) == -1) THROW_ERRNO("pwrite()");
 }
 
