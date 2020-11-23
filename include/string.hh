@@ -21,17 +21,19 @@ inline std::string cat(const char* x) noexcept { return x; }
 
 template <typename T>
 [[ gnu::always_inline ]]
-inline size_t str_size(T& x) noexcept {
-  using type = std::decay_t<T>;
-  if constexpr (std::is_same_v<type,char>)
-    return 1;
-  else if constexpr (
-    std::is_pointer_v<type> &&
-    std::is_same_v<std::decay_t<std::remove_pointer_t<type>>,char>
-  )
-    return strlen(x);
-  else
-    return x.size();
+inline size_t str_size(const T& x) noexcept
+requires requires { x.size(); } {
+  return x.size();
+}
+[[ gnu::always_inline ]]
+inline size_t str_size(char x) noexcept {
+  return 1;
+}
+template <typename T>
+[[ gnu::always_inline ]]
+inline size_t str_size(const T* x) noexcept
+requires std::is_same_v<std::remove_cv_t<T>,char> {
+  return strlen(x);
 }
 
 template <typename... T>

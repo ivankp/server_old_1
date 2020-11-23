@@ -146,7 +146,7 @@ int main(int argc, char* argv[]) {
             }
           }
         } else {
-          HTTP_ERROR(400, "POST with unexpected path \"",path,"\"");
+          HTTP_ERROR(400, "POST with unexpected path \"",path,'\"');
         }
       }
 
