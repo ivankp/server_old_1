@@ -3,6 +3,7 @@
 
 #include <cstring>
 #include <stdexcept>
+#include "bcrypt/bcrypt_common.hh"
 
 extern "C" {
 char* crypt_rn(const char* key, const char* setting, char* data, int size);
@@ -10,8 +11,6 @@ char* crypt_gensalt_rn(
   const char* prefix, unsigned long count, const char* input, int size,
   char* output, int output_size);
 }
-
-constexpr unsigned bcrypt_hash_len = 60;
 
 void bcrypt_hash(
   char* m, const char* pw, const char* rand, int nrand /*16*/, int work = 12

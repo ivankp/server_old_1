@@ -1,28 +1,25 @@
 #include "users.hh"
 
-#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <sys/mman.h>
 
-#include <iostream>
-#include <string>
 #include <random>
 #include <chrono>
 #include <algorithm>
+#include <iterator>
 #include <limits>
 
+#include "bcrypt/bcrypt.hh"
 #include "error.hh"
 #include "debug.hh"
-#include "bcrypt/bcrypt.hh"
 
 namespace {
 
-[[ gnu::const ]]
-unsigned next_pow2(unsigned x) {
+constexpr unsigned next_pow2(unsigned x) noexcept {
   // http://locklessinc.com/articles/next_pow2/
   x -= 1;
   x |= (x >> 1);
@@ -31,6 +28,11 @@ unsigned next_pow2(unsigned x) {
   x |= (x >> 8);
   x |= (x >> 16);
   return x + 1;
+}
+
+constexpr unsigned divceil(unsigned a, unsigned b) noexcept {
+  // https://stackoverflow.com/a/63436491/2640636
+  return a / b + (a % b != 0);
 }
 
 std::mt19937 rng(
@@ -51,67 +53,30 @@ void rndstr(char* str, unsigned len) noexcept {
   std::generate_n(str, len, []{ return charset[charset_dist(rng)]; });
 }
 
-}
-
-users_table::users_table(const char* filename) {
-  // mmap the file
-  struct stat sb;
-  fd = ::open(filename, O_RDWR|O_CREAT, 0644);
-  if (fd == -1) THROW_ERRNO("open()");
-  if (::fstat(fd, &sb) == -1) THROW_ERRNO("fstat()");
-  if (!S_ISREG(sb.st_mode)) THROW_ERRNO("not a file");
-  const unsigned f_len = sb.st_size;
-  m_len = std::max(next_pow2(f_len),1u<<20);
-  if (m_len != f_len)
-    if (::ftruncate(fd,m_len) == -1) THROW_ERRNO("ftruncate()");
-
-  m = reinterpret_cast<char*>(::mmap(0,m_len,PROT_READ,MAP_SHARED,fd,0));
-  if (m == MAP_FAILED) THROW_ERRNO("mmap()");
-
-  // create hash tables
-  for (const char *p=m, *end=p+f_len; ; ) {
-    if (end-p < prefix_len+2) ERROR(filename," file is corrupted");
-    p += pw_len;
-    by_cookie.emplace(p,cookie_len);
-    p += cookie_len;
-    p += by_name.emplace(p).first->size()+1;
-    if (p==end || *p=='\0') break;
-    if (p > end) ERROR(filename," file is corrupted");
+template <typename... T>
+[[gnu::always_inline]]
+inline void maybe_realloc(
+  unsigned need, unsigned& cap, T*&... m
+) {
+  if (need > cap) {
+    cap *= 2;
+    (..., [&](){
+      if (void* const r = realloc(m,cap*sizeof(T))) {
+        m = static_cast<T*>(r);
+      } else {
+        cap /= 2;
+        THROW_ERRNO("realloc()");
+      }
+    }());
   }
 }
 
-void users_table::expand() {
+void rotate_right(auto a, auto b) noexcept {
+  auto rb = std::make_reverse_iterator(b);
+  std::rotate(rb, rb+1, std::make_reverse_iterator(a));
 }
 
-users_table::~users_table() {
-  if (m && ::munmap(m,m_len) == -1)
-    std::cerr << IVANP_ERROR_PREF "munmap(): "
-      << std::strerror(errno) << std::endl;
-  if (fd && ::close(fd) == -1)
-    std::cerr << IVANP_ERROR_PREF "close(): "
-      << std::strerror(errno) << std::endl;
-}
-
-const char* users_table::operator[](std::string_view name) const noexcept {
-  const auto user = by_name.find(name);
-  return user != by_name.end() ? user->data() : nullptr;
-}
-char* users_table::operator[](std::string_view name) noexcept {
-  const auto user = by_name.find(name);
-  return user != by_name.end() ? const_cast<char*>(user->data()) : nullptr;
-}
-
-// TODO: return char* user
-const char*
-users_table::cookie_login(std::string_view cookie) const {
-  const auto user = by_cookie.find(cookie);
-  return user != by_cookie.end() ? user->data()+cookie_len : nullptr;
-}
-const char*
-users_table::pw_login(std::string_view name, const char* pw) const {
-  const char* const user = (*this)[name];
-  return (user && bcrypt_check(pw,user-prefix_len)) ? user : nullptr;
-}
+} // end namespace
 
 std::string rndstr(unsigned len) noexcept {
   std::string pw(len,'\0');
@@ -119,16 +84,183 @@ std::string rndstr(unsigned len) noexcept {
   return pw;
 }
 
-void users_table::reset_cookie(char* user) noexcept {
-  do { // generate unique cookie
-    rndstr(user-cookie_len,cookie_len);
-  } while (by_cookie.find({user-cookie_len,cookie_len})!=by_cookie.end());
+users_table::users_table(const char* filename) {
+  struct stat sb;
+  fd = ::open(filename, O_RDWR|O_CREAT, 0644);
+  if (fd == -1) THROW_ERRNO("open()");
+  if (::fstat(fd, &sb) == -1) THROW_ERRNO("fstat()");
+  if (!S_ISREG(sb.st_mode)) THROW_ERRNO("not a file");
+  f_len = sb.st_size;
+  m_len = std::max(
+    next_pow2(f_len),
+    next_pow2(max_user_len) //* 8
+  );
+  m = static_cast<char*>(malloc(m_len));
+  if (::read(fd,m,f_len) == -1) THROW_ERRNO("read()");
+
+  u_cap = std::max(next_pow2(divceil(f_len,max_user_len)),1u<<5);
+  by_name   = static_cast<unsigned*>(malloc(u_cap*sizeof(unsigned)));
+  by_cookie = static_cast<unsigned*>(malloc(u_cap*sizeof(unsigned)));
+  if (f_len) {
+    for (const char *p=m, *end=p+f_len; ; ) {
+      if (end-p < prefix_len+2) ERROR(filename," file is corrupted");
+      p += prefix_len;
+      append_user(p);
+      while (*p != '\0') ++p;
+      ++p;
+      if (p==end) break;
+      if (p > end) ERROR(filename," file is corrupted");
+    }
+
+    std::sort(by_name,by_name+u_len,[this](unsigned a, unsigned b){
+      return strcmp(m+a,m+b) < 0;
+    });
+    std::sort(by_cookie,by_cookie+u_len,[this](unsigned a, unsigned b){
+      return memcmp(m+a,m+b,cookie_len) < 0;
+    });
+  }
 }
 
-void users_table::reset_pw(char* user, const char* pw) {
-  reset_cookie(user);
+void users_table::swap(users_table& o) noexcept {
+  std::swap_ranges(
+    reinterpret_cast<char*>(this),
+    reinterpret_cast<char*>(this)+sizeof(users_table),
+    reinterpret_cast<char*>(&o)
+  );
+}
 
+users_table::~users_table() {
+  free(m);
+  free(by_name);
+  free(by_cookie);
+  if (fd!=-1) ::close(fd);
+}
+
+void users_table::append_user(const char* user) {
+  const unsigned u = user - m;
+  maybe_realloc(u_len+1,u_cap,by_name,by_cookie);
+  by_name  [u_len] = u;
+  by_cookie[u_len] = u-cookie_len;
+  ++u_len;
+}
+
+unsigned users_table::find_by_name(const char* name) const noexcept {
+  TEST(name)
+  if (m < name && name < (m+f_len)) return name-m;
+  auto a = by_name;
+  const auto b = a + u_len;
+  const auto cmp = [this](unsigned u, const char* name){
+    return strcmp(m+u,name) < 0;
+  };
+  a = std::lower_bound(a, b, name, cmp);
+  TEST(*a)
+  return (a==b || strcmp(name,m+*a)<0) ? 0 : *a;
+}
+unsigned users_table::find_by_cookie(const char* cookie) const noexcept {
+  auto a = by_cookie;
+  const auto b = a + u_len;
+  TEST(u_len)
+  const auto cmp = [this](unsigned u, const char* cookie){
+    TEST(std::string_view(m+u,cookie_len))
+    TEST(std::string_view(cookie,cookie_len))
+    return memcmp(m+u,cookie,cookie_len) < 0;
+  };
+  a = std::lower_bound(a, b, cookie, cmp);
+  return (a==b || memcmp(cookie,m+*a,cookie_len)<0) ? 0 : *a+cookie_len;
+}
+
+const char* users_table::cookie_login(const char* cookie) const noexcept {
+  const unsigned u = find_by_cookie(cookie);
+  return u ? m+u : nullptr;
+}
+const char* users_table::pw_login(const char* name, const char* pw) const {
+  const unsigned u = find_by_name(name);
+  return (u && bcrypt_check(pw,m+u-prefix_len)) ? m+u : nullptr;
+}
+
+void users_table::reset_cookie_impl(char* user) noexcept {
+  char tmp[cookie_len];
+  for (;;) { // generate unique cookie
+    TEST(get_cookie(user))
+    rndstr(tmp,cookie_len);
+    if (!find_by_cookie(tmp)) {
+      memcpy(user-cookie_len,tmp,cookie_len);
+      TEST(get_cookie(user))
+      break;
+    }
+  }
+
+  std::sort(by_cookie,by_cookie+u_len,[this](unsigned a, unsigned b){
+    return memcmp(m+a,m+b,cookie_len) < 0;
+  });
+}
+void users_table::reset_pw_impl(char* user, const char* pw) {
   char salt[16];
   std::generate_n(salt,sizeof(salt),[]{ return char_dist(rng); });
+  TEST(__LINE__)
   bcrypt_hash(user-prefix_len,pw,salt,sizeof(salt));
+  TEST(__LINE__)
+  reset_cookie_impl(user);
+}
+
+void users_table::reset_cookie(const char* name) {
+  unsigned u = find_by_name(name);
+  // TODO: block
+  reset_cookie_impl(m+u);
+  u -= cookie_len;
+  if (::pwrite(fd,m+u,cookie_len,u) == -1) THROW_ERRNO("pwrite()");
+}
+void users_table::reset_pw(const char* name, const char* pw) {
+  unsigned u = find_by_name(name);
+  TEST(u)
+  TEST(m+u-prefix_len)
+  // TODO: block
+  reset_pw_impl(m+u,pw);
+  u -= prefix_len;
+  TEST(m+u)
+  if (::pwrite(fd,m+u,prefix_len,u) == -1) THROW_ERRNO("pwrite()");
+}
+
+const char* users_table::new_user(const char* name, const char* pw) {
+  unsigned len = 0;
+  for (;;) {
+    if (name[len]=='\0') {
+      if (len==0) return 0;
+      ++len; // include null terminator
+      break;
+    }
+    if (++len > max_name_len) return 0;
+  }
+  if (find_by_name(name)) return 0;
+
+  // TODO: block
+  const unsigned user_len = prefix_len + len;
+  maybe_realloc(f_len+user_len,m_len,m);
+
+  char* const user = m+f_len+prefix_len;
+  memcpy(user,name,len);
+  reset_pw_impl(user,pw);
+
+  if (::write(fd,user-prefix_len,user_len) == -1) THROW_ERRNO("write()");
+
+  // index the new user
+  const auto pos_name = std::upper_bound(
+    by_name, by_name+u_len, user,
+    [this](const char* name, unsigned u){
+      return strcmp(m+u,name) < 0;
+    });
+  const auto pos_cookie = std::upper_bound(
+    by_cookie, by_cookie+u_len, user-cookie_len,
+    [this](const char* cookie, unsigned u){
+      return memcmp(m+u,cookie,cookie_len) < 0;
+    });
+  append_user(user);
+  rotate_right(pos_name,by_name+u_len);
+  rotate_right(pos_cookie,by_cookie+u_len);
+
+  // this must be the last step
+  // so that in case of failure previous steps can be ignored
+  f_len += user_len;
+
+  return user;
 }

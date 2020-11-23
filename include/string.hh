@@ -19,36 +19,34 @@ inline std::string cat() noexcept { return { }; }
 inline std::string cat(std::string x) noexcept { return x; }
 inline std::string cat(const char* x) noexcept { return x; }
 
-namespace detail::cat {
-
 template <typename T>
 [[ gnu::always_inline ]]
-inline size_t size(T& x) noexcept {
-  if constexpr (std::is_same_v<T,char>)
+inline size_t str_size(T& x) noexcept {
+  using type = std::decay_t<T>;
+  if constexpr (std::is_same_v<type,char>)
     return 1;
+  else if constexpr (
+    std::is_pointer_v<type> &&
+    std::is_same_v<std::decay_t<std::remove_pointer_t<type>>,char>
+  )
+    return strlen(x);
   else
     return x.size();
-}
-
 }
 
 template <typename... T>
 [[ gnu::always_inline ]]
 inline std::string cat(T&&... x) {
-  if constexpr ((... && (
-    std::is_convertible_v<T,std::string_view> ||
-    std::is_same_v<std::decay_t<T>,char>
-  ))) {
-    return [](auto... x){
-      std::string s;
-      s.reserve((... + detail::cat::size(x)));
-      (s += ... += x);
-      return s;
-    }(std::conditional_t<
-        std::is_convertible_v<T,std::string_view>,
-        std::string_view, T
-      >(x) ...
-    );
+  if constexpr ((... &&
+    requires (std::string& s) {
+      s += x;
+      str_size(x);
+    }
+  )) {
+    std::string s;
+    s.reserve((... + str_size(x)));
+    (s += ... += x);
+    return s;
   } else {
     std::stringstream s;
     (s << ... << std::forward<T>(x));
@@ -72,18 +70,19 @@ struct chars_less {
   }
   template <typename T>
   bool operator()(const T& a, const char* b) const noexcept {
-    return strncmp(a.data(),b,a.size()) < 0;
+    return a < b;
   }
   template <typename T>
   bool operator()(const char* a, const T& b) const noexcept {
-    return strncmp(a,b.data(),b.size()) < 0;
+    return a < b;
   }
 };
 
 inline bool starts_with(const char* str, const char* prefix) noexcept {
   for (;; ++str, ++prefix) {
-    if (!*prefix) break;
-    if (*str != *prefix) return false;
+    const char c = *prefix;
+    if (!c) break;
+    if (*str != c) return false;
   }
   return true;
 }
