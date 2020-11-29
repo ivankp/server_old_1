@@ -118,10 +118,15 @@ a:hover { text-decoration: underline; }
   text-decoration: underline;
 }
 
+#main > :not(:first-child) {
+  display: none;
+}
+
 #regbtn {
   float: right;
 }
-
-#main > :not(:first-child) {
-  display: none;
+#register label:after {
+  content: "*";
+  padding-left: 3px;
+  color: #A40000;
 }
