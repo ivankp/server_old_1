@@ -96,6 +96,16 @@ inline bool ends_with(const char* str, const char* suffix) noexcept {
   return starts_with(str+(n1-n2),suffix);
 }
 
+template <typename... T>
+requires (... && std::is_same_v<T,char>) && (sizeof...(T) > 0)
+[[gnu::always_inline]]
+inline void ctrim(char*& s, const char* end, T... x) noexcept {
+  for (; s<end; ++s) {
+    const char c = *s;
+    if (( ... && (c!=x) )) break;
+  }
+}
+
 } // end namespace ivanp
 
 #endif

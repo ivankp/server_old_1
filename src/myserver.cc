@@ -1,5 +1,7 @@
 #include <iostream>
 #include <fstream>
+#include <mutex>
+#include <shared_mutex>
 
 #include "server.hh"
 #include "http.hh"
@@ -24,21 +26,36 @@ std::string whole_file(const char* filename) {
   return str;
 }
 
-users_table users;
-const char* cookie_login(const http::request& req) {
+std::shared_mutex mx_users;
+const users_table users("db/users");
+
+std::string cookie_login(const http::request& req) {
+  std::shared_lock lock(mx_users);
   for (const char* cookie : req["Cookie"])
-    if (starts_with(cookie,"login="))
-      return users.cookie_login(cookie+6);
-  return nullptr;
+    if (starts_with(cookie,"login=")) {
+      cookie += 6;
+      if (strlen(cookie)==users_table::cookie_len) {
+        const char* const user = users.cookie_login(cookie);
+        if (user) return user;
+      }
+      break;
+    }
+  return { };
 };
+std::pair<std::string,std::string> pw_login(const http::request& req) {
+  const auto form_data = http::form_data(req.data,!'?');
+  std::shared_lock lock(mx_users);
+  const char* const user = users.pw_login(form_data["username"],{});
+  if (user) return {
+    user, { user-users_table::cookie_len, users_table::cookie_len } };
+  else return { };
+}
 
 int main(int argc, char* argv[]) {
   const server::port_t server_port = 8080;
   const unsigned nthreads = std::thread::hardware_concurrency();
   const unsigned epoll_nevents = 64;
   const size_t thread_buffer_size = 1<<13;
-
-  users = users_table("db/users");
 
   server server(server_port,epoll_nevents);
   cout << "Listening on port " << server_port <<'\n'<< std::endl;
@@ -66,8 +83,8 @@ int main(int argc, char* argv[]) {
       const char* path = g.path()+1;
       if (!strcmp(req.method,"GET")) { // ===========================
         if (*path=='\0') { // serve index page ----------------------
-          const char* user = cookie_login(req);
-          if (!user) { // not logged in
+          const auto user = cookie_login(req);
+          if (user.empty()) { // not logged in
             http::send_file(sock,"pages/index.html");
           } else { // logged in
             TEST(user)
@@ -80,7 +97,7 @@ int main(int argc, char* argv[]) {
               (http::header("text/html; charset=UTF-8",page.size()) + page);
           }
         } else if (!strcmp(path,"chat")) { // initiate websocket ----
-          // const char* user = cookie_login(req); // require login
+          // const auto user = cookie_login(req); // require login
           websocket::handshake(sock, req);
           server.epoll_add(std::move(sock)); // move prevents closing
         } else { // serve any allowed file --------------------------
@@ -106,7 +123,7 @@ int main(int argc, char* argv[]) {
             } else break;
           }
           // serve a file
-          http::send_file(sock,cat("share/",path));
+          http::send_file(sock,cat("files/",path));
         }
       } else if (!strcmp(req.method,"POST")) { // ===================
         if (!strcmp(req.path,"login")) {
@@ -115,25 +132,25 @@ int main(int argc, char* argv[]) {
               "HTTP/1.1 303 See Other\r\n"
               "Location: /\r\n"
               "Set-Cookie: login=0"
-              "; Path=/"
-              "; expires=Thu, 01 Jan 1970 00:00:00 GMT\r\n"
+                "; Path=/"
+                "; expires=Thu, 01 Jan 1970 00:00:00 GMT\r\n"
               "Connection: close\r\n\r\n";
-            const char* user = cookie_login(req);
-            if (user) {
-              INFO("32","logged out user ",user);
-            } else {
-              INFO("32","logged out nobody");
-            }
+            INFO("32","logout");
+            // const auto user = cookie_login(req);
+            // if (!user.empty()) {
+            //   INFO("32","logged out user ",user);
+            // } else {
+            //   INFO("32","logged out nobody");
+            // }
           } else { // Login
-            const auto form_data = http::form_data(req.data,!'?');
-            const char* const user = users.pw_login(form_data["username"],{});
-            if (user) {
+            const auto [user,cookie] = pw_login(req);
+            if (!user.empty()) {
               sock << cat(
                 "HTTP/1.1 303 See Other\r\n"
                 "Location: /\r\n"
-                "Set-Cookie: login=",get_cookie(user),
-                "; Max-Age=2147483647"
-                "; Path=/\r\n"
+                "Set-Cookie: login=", cookie,
+                  "; Max-Age=2147483647"
+                  "; Path=/\r\n"
                 "Connection: close\r\n\r\n"
               );
               INFO("32","logged in user ",user);

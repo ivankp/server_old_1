@@ -148,12 +148,13 @@ users_table::users_table(const char* filename) {
   }
 }
 
-void users_table::swap(users_table& o) noexcept {
+users_table& users_table::operator=(users_table&& o) noexcept {
   std::swap_ranges(
     reinterpret_cast<char*>(this),
     reinterpret_cast<char*>(this)+sizeof(users_table),
     reinterpret_cast<char*>(&o)
   );
+  return *this;
 }
 
 users_table::~users_table() {

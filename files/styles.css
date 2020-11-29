@@ -1,0 +1,133 @@
+body, div { margin: 0; border: 0; padding: 0; }
+#main { margin: 8px; }
+
+a { text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.noselect, #nav {
+  -webkit-touch-callout: none; /* iOS Safari */
+    -webkit-user-select: none; /* Safari */
+     -khtml-user-select: none; /* Konqueror HTML */
+       -moz-user-select: none; /* Firefox */
+        -ms-user-select: none; /* Internet Explorer, Edge */
+            user-select: none; /* Future */
+}
+
+/* Navigation */
+#nav {
+  height: 32px;
+  width: 100%;
+  font-weight: 700;
+  font-size: 12px;
+  font-family: sans-serif;
+  color: #333;
+  background-color: #fff;
+}
+#nav ul, #nav li, #nav p {
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+#nav a {
+  text-decoration: none;
+  color: inherit;
+}
+#nav ul {
+  list-style: none;
+  position: relative;
+  float: left;
+}
+#nav > ul:nth-child(2) {
+  float: right;
+}
+#nav li {
+  line-height: 32px;
+  padding: 0 12px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  position: relative;
+  cursor: pointer;
+  background-color: #fff;
+}
+#nav li.current {
+  background-color: #ddd;
+}
+#nav li:not(.nohl):hover {
+  background-color: #888;
+}
+#nav li.nohl {
+  cursor: default;
+  line-height: normal;
+}
+#nav > ul > li {
+  float: left;
+}
+#nav li:not(.click):hover > ul {
+  visibility: visible;
+  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+}
+#nav li.click > ul.show {
+  visibility: visible;
+  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+}
+#nav ul ul {
+  visibility: hidden;
+  position: absolute;
+  top: 100%;
+  left: 0;
+}
+#nav ul ul li {
+  float: none;
+  min-width: 120px;
+  text-align: left;
+}
+#nav ul ul ul {
+  top: 0;
+  left: 100%;
+}
+
+#nav .login:before {
+  content: '';
+  display: inline-block;
+  background-image: url("login.svg");
+  background-size: 18px 18px;
+  height: 18px;
+  width: 18px;
+  vertical-align: -4px;
+  margin-right: 3px;
+}
+#nav > ul:nth-child(2) ul {
+  left: auto;
+  right: 0;
+}
+
+#nav form {
+  margin: 12px 0;
+}
+#nav form label {
+  display: block;
+  margin: 10px 0;
+}
+#nav form label > input {
+  display: block;
+  margin: 3px 0 0 0;
+  padding: 0;
+}
+#nav form a:hover {
+  text-decoration: underline;
+}
+.tab {
+  display: table;
+  width: 100%;
+}
+.tab > * {
+  display: table-cell;
+  vertical-align: middle;
+}
+.tab .right {
+  text-align: right;
+}
+.login .tab .right {
+  padding: 0 3px;
+}

@@ -1,22 +1,44 @@
 #include "http.hh"
 
-#include <unistd.h>
-#include <fcntl.h>
+#include <sys/types.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <sys/sendfile.h>
 
+#include "error.hh"
 #include "debug.hh"
 
 namespace ivanp::http {
 
-const std::map<const char*,const char*,chars_less> memes {
-  {"html","text/html; charset=UTF-8"},
-  {"ico","image/x-icon"},
-  {"css","text/css"},
-  {"js","application/javascript"},
-  {"json","application/json"},
-  {"txt","text/plain; charset=UTF-8"}
-};
+const std::map<const char*,const char*,chars_less> memes = []{
+  struct stat sb;
+  static constexpr auto filename = "share/mimes";
+  const int fd = ::open(filename, O_RDONLY);
+  if (fd == -1) THROW_ERRNO("open()");
+  if (::fstat(fd, &sb) == -1) THROW_ERRNO("fstat()");
+  if (!S_ISREG(sb.st_mode)) THROW_ERRNO("not a file");
+  const size_t len = sb.st_size;
+  char* const m = static_cast<char*>(malloc(len+1));
+  std::map<const char*,const char*,chars_less> memes;
+  if (len) {
+    if (::read(fd,m,len) == -1) THROW_ERRNO("read()");
+    for (char *a=m, *b, *c, *end=m+len; ; ) {
+      ctrim(a,end,' ','\t','\n');
+      if (a>=end) break;
+      b = static_cast<char*>(memchr(a,' ',end-a));
+      if (!b || b+1==end) ERROR(filename);
+      *b = '\0';
+      ctrim(++b,end,' ','\t','\n');
+      c = static_cast<char*>(memchr(b,'\n',end-b));
+      if (!c) c = end;
+      *c = '\0';
+      memes[a] = b;
+      a = c+1;
+    }
+  }
+  return memes;
+}();
 
 const std::map<int,const char*> status_codes {
   {400,"HTTP/1.1 400 Bad Request\r\n\r\n"},

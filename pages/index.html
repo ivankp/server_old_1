@@ -14,11 +14,56 @@ faV0x95pqeST8NPkp/A0Q0LJJ/LVmM/gU+luj/eqz+TTDOgld2ZDAOySFgGIO3AlA3PvkgpgPeiv
 462rPRwm+W8rzAEAVlA4ICYAAADQAgCdASogACAAPpFEnUqlo6KhqAgAsBIJaQAAPaOgAP74zxrA
 AA==">
 <link rel="stylesheet" href="styles.css" type="text/css">
+<script src="main.js"></script>
 </head>
 <body>
 
+<div id="nav">
+  <ul>
+    <li class="current"><a href="/">Home</a></li>
+    <li>Menu
+      <ul>
+        <li>Subitem 1</li>
+        <li>Subitem 2</li>
+        <li><p>Submenu</p>
+          <ul>
+            <li>Subsubitem 1</li>
+            <li>Subsubitem 2</li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+    <li class="click">Menu
+      <ul>
+        <li>Subitem 1</li>
+        <li>Subitem 2</li>
+        <li><p>Submenu</p>
+          <ul>
+            <li>Subsubitem 1</li>
+            <li>Subsubitem 2</li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+  </ul>
+  <ul>
+    <li class="login click">Login
+      <ul><li class="nohl">
+      <form id="login" method="post" action="login">
+        <label>username: <input type="text" name="username"></label>
+        <label>password: <input type="password" name="password"></label>
+        <div class="tab">
+          <input type="submit" value="login">
+          <a href="register" class="right">Register</a>
+        </div>
+      </form>
+      </li></ul>
+    </li>
+  </ul>
+</div>
+
 <div id="main">
-  <p>This is a test.</p>
+  <p>Main page.</p>
 </div>
 
 </body>

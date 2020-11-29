@@ -27,8 +27,6 @@ private:
   void reset_cookie_impl(char* user) noexcept;
   void reset_pw_impl(char* user, const char* pw);
 
-  void swap(users_table& o) noexcept;
-
   void append_user(const char* user);
 
 public:
@@ -37,12 +35,9 @@ public:
   users_table(const users_table&) = delete;
   users_table& operator=(const users_table&) = delete;
   users_table(users_table&& o) noexcept {
-    swap(o);
+    (*this) = std::move(o);
   }
-  users_table& operator=(users_table&& o) noexcept {
-    swap(o);
-    return *this;
-  }
+  users_table& operator=(users_table&& o) noexcept;
   ~users_table();
 
   const char* operator[](const char* name) const noexcept {
