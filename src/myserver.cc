@@ -3,6 +3,7 @@
 #include <mutex>
 #include <shared_mutex>
 
+#include "whole_file.hh"
 #include "server.hh"
 #include "http.hh"
 #include "websocket.hh"
@@ -12,19 +13,6 @@
 
 using namespace ivanp;
 using std::cout;
-
-std::string whole_file(const char* filename) {
-  std::ifstream f(filename);
-  std::string str;
-
-  f.seekg(0, std::ios::end);
-  str.reserve(f.tellg());
-  f.seekg(0, std::ios::beg);
-
-  str.assign(std::istreambuf_iterator<char>(f),
-             std::istreambuf_iterator<char>());
-  return str;
-}
 
 std::shared_mutex mx_users;
 const users_table users("db/users");
@@ -42,12 +30,10 @@ std::string cookie_login(const http::request& req) {
     }
   return { };
 };
-std::pair<std::string,std::string> pw_login(const http::request& req) {
-  const auto form_data = http::form_data(req.data,!'?');
+std::string pw_login(const char* name, const char* pw) {
   std::shared_lock lock(mx_users);
-  const char* const user = users.pw_login(form_data["username"],{});
-  if (user) return {
-    user, { user-users_table::cookie_len, users_table::cookie_len } };
+  const char* const user = users.pw_login(name,pw);
+  if (user) return std::string( get_cookie(user) );
   else return { };
 }
 
@@ -89,10 +75,14 @@ int main(int argc, char* argv[]) {
           } else { // logged in
             TEST(user)
             auto page = whole_file("pages/index_user.html");
-            static constexpr char token[] = "<!-- GLOBAL_VARS_JS -->";
-            page.replace(page.find(token),sizeof(token)-1,cat(
-              "\nconst user = \"",user,"\"};\n"
-            ));
+            { static constexpr char token[] = "<!-- GLOBAL_VARS_JS -->";
+              page.replace(page.find(token),sizeof(token)-1,cat(
+                "\nconst user = \"",user,"\";\n"
+              ));
+            }
+            { static constexpr char token[] = "<!-- USER_NAME -->";
+              page.replace(page.find(token),sizeof(token)-1,user);
+            }
             sock <<
               (http::header("text/html; charset=UTF-8",page.size()) + page);
           }
@@ -126,7 +116,7 @@ int main(int argc, char* argv[]) {
           http::send_file(sock,cat("files/",path));
         }
       } else if (!strcmp(req.method,"POST")) { // ===================
-        if (!strcmp(req.path,"login")) {
+        if (!strcmp(path,"login")) {
           if (req.data.empty()) { // Logout
             sock <<
               "HTTP/1.1 303 See Other\r\n"
@@ -136,15 +126,11 @@ int main(int argc, char* argv[]) {
                 "; expires=Thu, 01 Jan 1970 00:00:00 GMT\r\n"
               "Connection: close\r\n\r\n";
             INFO("32","logout");
-            // const auto user = cookie_login(req);
-            // if (!user.empty()) {
-            //   INFO("32","logged out user ",user);
-            // } else {
-            //   INFO("32","logged out nobody");
-            // }
           } else { // Login
-            const auto [user,cookie] = pw_login(req);
-            if (!user.empty()) {
+            const auto form = http::form_data(req.data,!'?');
+            const char* name = form["username"];
+            const auto cookie = pw_login(name,form["password"]);
+            if (!cookie.empty()) {
               sock << cat(
                 "HTTP/1.1 303 See Other\r\n"
                 "Location: /\r\n"
@@ -153,13 +139,13 @@ int main(int argc, char* argv[]) {
                   "; Path=/\r\n"
                 "Connection: close\r\n\r\n"
               );
-              INFO("32","logged in user ",user);
+              INFO("32","logged in user ",name);
             } else {
               sock <<
                 "HTTP/1.1 303 See Other\r\n"
                 "Location: /\r\n"
                 "Connection: close\r\n\r\n";
-              INFO("32","failed to log in user ",user);
+              INFO("31","failed to log in user ",name);
             }
           }
         } else {

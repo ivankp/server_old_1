@@ -50,12 +50,10 @@ AA==">
     <li class="login click">Login
       <ul><li class="nohl">
       <form id="login" method="post" action="login">
-        <label>username: <input type="text" name="username"></label>
-        <label>password: <input type="password" name="password"></label>
-        <div class="tab">
-          <input type="submit" value="login">
-          <a href="register" class="right">Register</a>
-        </div>
+        <label>Username: <input type="text" name="username"></label>
+        <label>Password: <input type="password" name="password"></label>
+        <input type="submit" value="Login">
+        <button id="regbtn" type="button" class="collapse">Register</button>
       </form>
       </li></ul>
     </li>
@@ -63,7 +61,26 @@ AA==">
 </div>
 
 <div id="main">
-  <p>Main page.</p>
+
+<div>
+  <p>Main page</p>
+</div>
+
+<div id="regform">
+  <p>Register</p>
+  <form id="register" method="post" action="register" autocomplete="off">
+    <dl>
+      <dt><label for="reg_user">Username</label></dt>
+      <dd><input id="reg_user" type="text" name="username" autocapitalize="off"></dd>
+      <dt><label for="reg_email">Email address</label></dt>
+      <dd><input id="reg_email" type="email" name="email"></dd>
+      <dt><label for="reg_pw">Password</label></dt>
+      <dd><input id="reg_pw" type="password" name="password"></dd>
+    </dl>
+    <input type="submit" value="Register">
+  </form>
+</div>
+
 </div>
 
 </body>

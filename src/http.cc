@@ -1,43 +1,36 @@
 #include "http.hh"
 
+#include <cstdlib>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/sendfile.h>
 
+#include "whole_file.hh"
 #include "error.hh"
 #include "debug.hh"
 
 namespace ivanp::http {
 
-const std::map<const char*,const char*,chars_less> memes = []{
-  struct stat sb;
+const std::map<const char*,const char*,chars_less> mimes = []{
   static constexpr auto filename = "share/mimes";
-  const int fd = ::open(filename, O_RDONLY);
-  if (fd == -1) THROW_ERRNO("open()");
-  if (::fstat(fd, &sb) == -1) THROW_ERRNO("fstat()");
-  if (!S_ISREG(sb.st_mode)) THROW_ERRNO("not a file");
-  const size_t len = sb.st_size;
-  char* const m = static_cast<char*>(malloc(len+1));
-  std::map<const char*,const char*,chars_less> memes;
-  if (len) {
-    if (::read(fd,m,len) == -1) THROW_ERRNO("read()");
-    for (char *a=m, *b, *c, *end=m+len; ; ) {
-      ctrim(a,end,' ','\t','\n');
-      if (a>=end) break;
-      b = static_cast<char*>(memchr(a,' ',end-a));
-      if (!b || b+1==end) ERROR(filename);
-      *b = '\0';
-      ctrim(++b,end,' ','\t','\n');
-      c = static_cast<char*>(memchr(b,'\n',end-b));
-      if (!c) c = end;
-      *c = '\0';
-      memes[a] = b;
-      a = c+1;
-    }
+  static auto s = whole_file(filename);
+  std::map<const char*,const char*,chars_less> mimes;
+  for (char *a=s.data(), *b, *c, *const end=a+s.size(); ; ) {
+    ctrim(a,end,' ','\t','\n','\0');
+    if (a==end) break;
+    b = static_cast<char*>(memchr(a,' ',end-a));
+    if (!b || b+1==end) ERROR(filename);
+    *b = '\0';
+    ctrim(++b,end,' ','\t','\n','\0');
+    c = static_cast<char*>(memchr(b,'\n',end-b));
+    mimes[a] = b;
+    if (!c) break;
+    *c = '\0';
+    a = c+1;
   }
-  return memes;
+  return mimes;
 }();
 
 const std::map<int,const char*> status_codes {
@@ -185,11 +178,11 @@ form_data::form_data(std::string_view str, bool q) noexcept: mem(str) {
 }
 
 std::string header(
-  std::string_view meme, size_t len, std::string_view more
+  std::string_view mime, size_t len, std::string_view more
 ) {
   return cat(
     "HTTP/1.1 200 OK\r\n"
-    "Content-Type: ", meme, "\r\n"
+    "Content-Type: ", mime, "\r\n"
     "Content-Length: ", std::to_string(len), "\r\n"
     "Connection: close\r\n",
     more, "\r\n");
@@ -198,7 +191,7 @@ std::string header(
 // send whole file --------------------------------------------------
 void send_file(
   file_desc& fd, std::string in_name,
-  std::string_view meme, std::string_view more
+  std::string_view mime, std::string_view more
 ) {
   try {
     in_name += ".gz";
@@ -214,19 +207,19 @@ void send_file(
     if (!S_ISREG(sb.st_mode)) THROW_ERRNO("not a regular file");
     const auto len = sb.st_size;
 
-    if (meme.empty()) {
+    if (mime.empty()) {
       const char* ext = strrchr(in_name.c_str(),'.');
-      if (!ext) meme = "text/plain; charset=UTF-8";
+      if (!ext) mime = "text/plain; charset=UTF-8";
       else {
         try {
-          meme = memes.at(ext+1);
+          mime = mimes.at(ext+1);
         } catch (...) {
-          meme = "text/plain; charset=UTF-8";
+          mime = "text/plain; charset=UTF-8";
         }
       }
     }
 
-    fd << header(meme,len,cat(
+    fd << header(mime,len,cat(
       (gz ? "Content-Encoding: gzip\r\n" : ""),
       more
     ));

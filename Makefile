@@ -22,7 +22,7 @@ all: $(patsubst %, bin/%, \
 #####################################################################
 
 bin/myserver: $(patsubst %, .build/%.o, \
-  server file_desc http websocket base64 users \
+  server file_desc whole_file http websocket base64 users \
 ) lib/libbcrypt.so
 LF_myserver := -pthread -Llib -Wl,-rpath=lib
 L_myserver := -lssl -lcrypto -lbcrypt

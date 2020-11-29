@@ -13,11 +13,11 @@ char* crypt_gensalt_rn(
 }
 
 void bcrypt_hash(
-  char* m, const char* pw, const char* rand, int nrand /*16*/, int work = 12
+  char* m, const char* pw, const char* rand, int nrand /*16*/, int work = 10
 ) {
   char salt[64];
   char hash[64];
-  if (work < 4 || 31 < work) work = 12;
+  if (work < 4 || 31 < work) work = 10;
   if (!crypt_gensalt_rn("$2a$", work, rand, nrand, salt, sizeof(salt)))
     throw std::runtime_error("bcrypt failed to salt");
   if (!crypt_rn(pw, salt, hash, sizeof(hash)))

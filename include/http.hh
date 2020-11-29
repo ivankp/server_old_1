@@ -9,7 +9,7 @@
 
 namespace ivanp::http {
 
-extern const std::map<const char*,const char*,chars_less> memes;
+extern const std::map<const char*,const char*,chars_less> mimes;
 extern const std::map<int,const char*> status_codes;
 
 class error: public ivanp::error {
@@ -117,12 +117,12 @@ public:
 };
 
 std::string header(
-  std::string_view meme, size_t len, std::string_view more={}
+  std::string_view mime, size_t len, std::string_view more={}
 );
 
 void send_file(
   file_desc& fd, std::string in_name,
-  std::string_view meme={}, std::string_view more={}
+  std::string_view mime={}, std::string_view more={}
 );
 
 }
