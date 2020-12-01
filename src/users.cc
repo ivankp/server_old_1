@@ -12,23 +12,13 @@
 #include <algorithm>
 #include <iterator>
 #include <limits>
+#include <bit>
 
 #include "bcrypt/bcrypt.hh"
 #include "error.hh"
 // #include "debug.hh"
 
 namespace {
-
-constexpr unsigned next_pow2(unsigned x) noexcept {
-  // http://locklessinc.com/articles/next_pow2/
-  x -= 1;
-  x |= (x >> 1);
-  x |= (x >> 2);
-  x |= (x >> 4);
-  x |= (x >> 8);
-  x |= (x >> 16);
-  return x + 1;
-}
 
 constexpr unsigned divceil(unsigned a, unsigned b) noexcept {
   // https://stackoverflow.com/a/63436491/2640636
@@ -123,13 +113,13 @@ users_table::users_table(const char* filename) {
   if (!S_ISREG(sb.st_mode)) THROW_ERRNO("not a file");
   f_len = sb.st_size;
   m_len = std::max(
-    next_pow2(f_len),
-    next_pow2(max_user_len) * 8
+    std::bit_ceil(f_len),
+    std::bit_ceil(max_user_len) * 8
   );
   m = static_cast<char*>(malloc(m_len));
   if (::read(fd,m,f_len) == -1) THROW_ERRNO("read()");
 
-  u_cap = std::max(next_pow2(divceil(f_len,max_user_len)),1u<<5);
+  u_cap = std::max(std::bit_ceil(divceil(f_len,max_user_len)),1u<<5);
   by_name   = static_cast<unsigned*>(malloc(u_cap*sizeof(unsigned)));
   by_cookie = static_cast<unsigned*>(malloc(u_cap*sizeof(unsigned)));
   if (f_len) {
