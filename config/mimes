@@ -1,7 +1,13 @@
 txt text/plain; charset=UTF-8
 html text/html; charset=UTF-8
-ico image/x-icon
 css text/css
 js application/javascript
 json application/json
+xml application/xml
 svg image/svg+xml
+webp image/webp
+gif image/gif
+png image/png
+jpg image/jpeg
+ico image/x-icon
+pdf application/pdf

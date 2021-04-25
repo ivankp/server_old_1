@@ -22,12 +22,13 @@ all: $(patsubst %, bin/%, \
 #####################################################################
 
 bin/myserver: $(patsubst %, .build/%.o, \
-  server file_desc whole_file http websocket base64 users \
+  file_desc whole_file base64 \
+  $(patsubst %, server/%, server http websocket users) \
 ) lib/libbcrypt.so
 LF_myserver := -pthread -Llib -Wl,-rpath=lib
 L_myserver := -lssl -lcrypto -lbcrypt
 
-bin/user: .build/users.o lib/libbcrypt.so
+bin/user: .build/server/users.o lib/libbcrypt.so
 # C_user := -DNDEBUG
 LF_user := -Llib -Wl,-rpath=lib
 L_user := -lbcrypt
@@ -39,6 +40,8 @@ C_bcrypt/wrapper := $(C__bcrypt) -fPIC
 C_bcrypt/x86 := -fPIC
 lib/libbcrypt.so: $(patsubst %, .build/bcrypt/%.o, \
   x86 blowfish gensalt wrapper )
+
+lib/libbcrypt.so: CXX = $(CC)
 
 #####################################################################
 

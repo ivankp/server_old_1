@@ -1,7 +1,7 @@
 #ifndef IVANP_WEBSOCKET_HH
 #define IVANP_WEBSOCKET_HH
 
-#include "http.hh"
+#include "server/http.hh"
 
 namespace ivanp::websocket {
 

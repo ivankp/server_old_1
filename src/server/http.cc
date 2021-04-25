@@ -1,4 +1,4 @@
-#include "http.hh"
+#include "server/http.hh"
 
 #include <cstdlib>
 #include <sys/types.h>
@@ -14,16 +14,17 @@
 namespace ivanp::http {
 
 const std::map<const char*,const char*,chars_less> mimes = []{
-  static constexpr auto filename = "share/mimes";
+  static constexpr auto filename = "config/mimes";
   static auto s = whole_file(filename);
   std::map<const char*,const char*,chars_less> mimes;
   for (char *a=s.data(), *b, *c, *const end=a+s.size(); ; ) {
-    ctrim(a,end,' ','\t','\n','\0');
+    a += strspn(a," \t\n");
     if (a==end) break;
     b = static_cast<char*>(memchr(a,' ',end-a));
     if (!b || b+1==end) ERROR(filename);
     *b = '\0';
-    ctrim(++b,end,' ','\t','\n','\0');
+    ++b;
+    b += strspn(b," \t\n");
     c = static_cast<char*>(memchr(b,'\n',end-b));
     mimes[a] = b;
     if (!c) break;

@@ -1,19 +1,16 @@
 #include "whole_file.hh"
+#include "local_fd.hh"
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-
-#include "error.hh"
-
-std::string whole_file(const char* filename) {
+std::string whole_file(const char* name) {
+  using ivanp::cat;
+  ivanp::local_fd fd(name);
   struct stat sb;
-  const int fd = ::open(filename, O_RDONLY);
-  if (fd == -1) THROW_ERRNO("open(",filename,')');
-  if (::fstat(fd, &sb) == -1) THROW_ERRNO("fstat()");
-  if (!S_ISREG(sb.st_mode)) THROW_ERRNO("not a file");
+  if (::fstat(fd,&sb) < 0)
+    throw std::runtime_error(cat("fstat(",name,"): ",std::strerror(errno)));
+  if (!S_ISREG(sb.st_mode))
+    throw std::runtime_error(cat("\"",name,"\" is not a regular file"));
   std::string m(sb.st_size,'\0');
-  if (::read(fd,m.data(),m.size()) == -1) THROW_ERRNO("read()");
+  if (::read(fd,m.data(),m.size()) < 0)
+    throw std::runtime_error(cat("read(",name,"): ",std::strerror(errno)));
   return m;
 }

@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "users.hh"
+#include "server/users.hh"
 #include "debug.hh"
 
 using std::cout;

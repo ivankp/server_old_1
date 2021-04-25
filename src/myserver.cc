@@ -4,10 +4,10 @@
 #include <shared_mutex>
 
 #include "whole_file.hh"
-#include "server.hh"
-#include "http.hh"
-#include "websocket.hh"
-#include "users.hh"
+#include "server/server.hh"
+#include "server/http.hh"
+#include "server/websocket.hh"
+#include "server/users.hh"
 #include "error.hh"
 #include "debug.hh"
 
@@ -20,7 +20,7 @@ const users_table users("db/users");
 std::string cookie_login(const http::request& req) {
   std::shared_lock lock(mx_users);
   for (const char* cookie : req["Cookie"])
-    if (starts_with(cookie,"login=")) {
+    if (!strncmp(cookie,"login=",6)) {
       cookie += 6;
       if (strlen(cookie)==users_table::cookie_len) {
         const char* const user = users.cookie_login(cookie);
