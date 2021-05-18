@@ -23,26 +23,33 @@ constexpr uint8_t base64_decode_table[128] = {
   0x31, 0x32, 0x33, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
 };
 
+namespace {
+unsigned div_ceil(unsigned a, unsigned b) noexcept {
+  return a/b + (a%b != 0);
+}
+constexpr uint8_t operator""_u1(unsigned long long int x) noexcept {
+  return x;
+}
+}
+
 std::string base64_encode(const char* ptr, size_t len) noexcept {
   unsigned npad = len%3;
   if (npad) npad = 3 - npad;
-  len *= 8;
-  std::string out(len/6 + !!(len%6) + npad, '=');
-  char* o = &out[0];
-  uint8_t d=0, step=0, mask=0;
-  uint8_t byte;
+  std::string out(div_ceil(len*8,6)+npad,'=');
+  char* o = out.data();
+  uint8_t d=0, step=0, mask=0, byte;
   for (const char* const end = ptr+len; ptr!=end; ++ptr) {
     byte = *ptr;
-    (mask >>= 2) |= (3u<<4);
-    step += 2;
+    (mask >>= 2_u1) |= (3_u1<<4_u1);
+    step += 2_u1;
     d |= (byte >> step);
     *(o++) = base64_encode_table[d];
-    d = (byte << (6-step)) & mask;
-    if (step==6) {
+    d = (byte << (6_u1-step)) & mask;
+    if (step==6_u1) {
       *(o++) = base64_encode_table[d];
-      step = 0;
-      mask = 0;
-      d = 0;
+      step = 0_u1;
+      mask = 0_u1;
+      d = 0_u1;
     }
   }
   if (step) *(o++) = base64_encode_table[d];

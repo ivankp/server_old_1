@@ -3,27 +3,30 @@
 
 #include <map>
 #include <iterator>
+#include <array>
 
-#include "file_desc.hh"
+#include "socket.hh"
 #include "error.hh"
 
 namespace ivanp::http {
 
-extern const std::map<const char*,const char*,chars_less> mimes;
 extern const std::map<int,const char*> status_codes;
+const char* mimes(const char*) noexcept;
 
 class error: public ivanp::error {
   int code;
 public:
-  template <typename... T>
-  [[ gnu::always_inline ]]
+  template <typename... T> [[ gnu::always_inline ]]
   error(int code, T&&... x)
   : ivanp::error(std::forward<T>(x)...), code(code) { }
-  void respond(file_desc&) const;
+
+  friend socket operator<<(socket fd, const error& e) {
+    return fd << status_codes.at(e.code);
+  }
 };
 
 #define HTTP_ERROR(code,...) \
-  throw ::ivanp::http::error(code, IVANP_ERROR_PREF, __VA_ARGS__);
+  throw ivanp::http::error(code, IVANP_ERROR_PREF, __VA_ARGS__);
 
 class form_data {
   std::string mem;
@@ -46,9 +49,12 @@ public:
     try {
       return params.at(key);
     } catch (const std::out_of_range&) {
-      ERROR("form_data missing key \"",key,"\"");
+      HTTP_ERROR(400,"form_data missing key \"",key,"\"");
     }
   }
+
+  auto begin() const { return params.begin(); }
+  auto end  () const { return params.end  (); }
 };
 
 struct request {
@@ -56,29 +62,13 @@ struct request {
   std::multimap<const char*,const char*,chars_less> header;
   std::string_view data;
 
+  inline static size_t own_buffer_max_size = 1 << 20;
+
 private:
-  class buffer {
-    char* p { };
-    buffer(char* p) noexcept: p(p) { }
-  public:
-    ~buffer() { delete[] p; }
-    buffer() noexcept = default;
-
-    buffer(const buffer&) = delete;
-    buffer& operator=(const buffer&) = delete;
-
-    buffer(buffer&& o) noexcept { std::swap(p,o.p); }
-    buffer& operator=(buffer&& o) noexcept { std::swap(p,o.p); return *this; }
-
-    char* operator()(size_t size) noexcept {
-      *this = { new char[size] };
-      return p;
-    }
-  };
-  buffer mem { };
+  char* own_buffer = nullptr;
 
 public:
-  request(const file_desc&, char* buffer, size_t size, size_t max_size=0);
+  request(const socket, char* buffer, size_t size);
 
   request(const request&) = delete;
   request& operator=(const request&) = delete;
@@ -86,34 +76,47 @@ public:
   request(request&& o) noexcept = default;
   request& operator=(request&& o) noexcept = default;
 
+  ~request() { free(own_buffer); }
+
+  operator bool() const noexcept { return method; }
+
   form_data get_params() const noexcept { return { path }; }
 
-  class range {
-  public:
-    struct iterator {
-      decltype(header)::const_iterator it;
-      auto& operator* () const noexcept { return it->second; }
-      auto& operator->() const noexcept { return it; }
-      auto& operator++() noexcept(noexcept(++it)) { ++it; return *this; }
-      auto& operator--() noexcept(noexcept(--it)) { --it; return *this; }
-      bool  operator==(const iterator& r) const noexcept { return it == r.it; }
-      bool  operator!=(const iterator& r) const noexcept { return it != r.it; }
-    };
-  private:
-    iterator a, b;
-  public:
-    template <typename T>
-    range(T&& x)
-    : a{std::get<0>(std::forward<T>(x))},
-      b{std::get<1>(std::forward<T>(x))} { }
-    auto begin() const noexcept { return a; }
-    auto end  () const noexcept { return b; }
-    auto size () const noexcept { return std::distance(a.it,b.it); }
-    decltype(auto) operator*() const noexcept { return *a; }
-  };
+  auto operator[](const auto& x) const { return header.equal_range(x); }
 
-  template <typename K>
-  range operator[](const K& x) const { return header.equal_range(x); }
+  float qvalue(const char* field, std::string_view value) const;
+
+  // requires form field names and values to be
+  // prefixed by 16 bit length (big endian) and null-terminated
+  void post_form_data(auto&& f) const {
+    const char* p = data.data();
+    const char* const data_end = p + data.size();
+    unsigned len;
+    for (;;) {
+      if (p == data_end) break;
+      len = 0;
+      len += *reinterpret_cast<const uint8_t*>(p++);
+      len <<= 8;
+      len += *reinterpret_cast<const uint8_t*>(p++);
+      const char* end = p + len;
+      if (!(end < data_end && *end == '\0'))
+        HTTP_ERROR(400,"invalid POST form data");
+      f(std::string_view(p,len));
+      p = end + 1;
+    }
+  }
+  auto post_form_data(const auto&... field) const
+  requires requires (std::string_view s) { ((s==field) && ...); }
+  {
+    std::array<std::string_view,sizeof...(field)> values { };
+    post_form_data([&,i=-1](std::string_view s) mutable {
+      if (i==-1) {
+        if (!( (++i, s==field) || ... ))
+          HTTP_ERROR(400,"unexpected POST form field");
+      } else { values[i] = s; i = -1; }
+    });
+    return values;
+  }
 };
 
 std::string header(
@@ -121,10 +124,13 @@ std::string header(
 );
 
 void send_file(
-  file_desc& fd, std::string in_name,
-  std::string_view mime={}, std::string_view more={}
+  socket, const char* name, bool gz=false
 );
 
-}
+void send_str(
+  socket, std::string_view str, std::string_view mime, bool gz=false
+);
+
+} // end namespace http
 
 #endif

@@ -1,103 +1,94 @@
-#include "server/server.hh"
+#include "server.hh"
 
+#include <unistd.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/epoll.h>
 
 #include "error.hh"
-#include "debug.hh"
+// #include "debug.hh"
 
 namespace ivanp {
+namespace {
 
-server::~server() {
-  delete[] epoll_events;
+void nonblock(int fd) {
+  PCALL(fcntl)(fd, F_SETFL,
+    PCALLR(fcntl)(fd,F_GETFL,0) | O_NONBLOCK);
 }
 
-server::server(port_t port, unsigned nevents_max)
-: main_socket(::socket(AF_INET, SOCK_STREAM, 0)),
-  nevents_max(nevents_max)
+}
+
+server::server(port_t port, unsigned epoll_buffer_size, int epoll_timeout)
+: main_socket(PCALLR(socket)(AF_INET, SOCK_STREAM, 0)),
+  epoll(PCALLR(epoll_create1)(0)),
+  n_epoll_events(epoll_buffer_size),
+  epoll_timeout(epoll_timeout)
 {
-  if (!main_socket.is_valid()) THROW_ERRNO("socket()");
-  int enable = 1;
-  if (::setsockopt(
-    *main_socket, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable)
-  ) < 0) THROW_ERRNO("setsockopt(SO_REUSEADDR)");
+  { int val = 1;
+    PCALL(setsockopt)(
+      main_socket, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
+  }
 
   sockaddr_in addr;
   addr.sin_family = AF_INET;
   addr.sin_port = htons(port);
   addr.sin_addr.s_addr = htonl(INADDR_ANY);
   ::memset(&addr.sin_zero, '\0', sizeof(addr.sin_zero));
-  if (::bind(*main_socket,reinterpret_cast<sockaddr*>(&addr),sizeof(addr)) < 0)
-    THROW_ERRNO("bind()");
-  if (::listen(*main_socket, 8/*backlog*/) < 0) THROW_ERRNO("listen()");
+  PCALL(bind)(main_socket,reinterpret_cast<sockaddr*>(&addr),sizeof(addr));
+  nonblock(main_socket);
+  PCALL(listen)(main_socket, SOMAXCONN/*backlog*/);
 
-  epoll = ::epoll_create1(0);
-  if (!epoll.is_valid()) THROW_ERRNO("epoll_create1()");
-  try {
-    epoll_events = new epoll_event[nevents_max];
-    epoll_add(main_socket);
-  } catch (...) {
-    delete[] epoll_events;
-    throw;
-  }
+  epoll_add(main_socket);
+
+  epoll_events = new epoll_event[n_epoll_events];
+}
+server::~server() {
+  delete[] epoll_events;
 }
 
-void server::epoll_add(file_desc sock) {
+void server::epoll_add(int fd) {
   epoll_event event {
-    .events = EPOLLIN | EPOLLET,
-    .data = { .fd = *sock }
+    .events = EPOLLIN | EPOLLRDHUP | EPOLLET,
+    .data = { .fd = fd }
   };
-  if (::epoll_ctl(*epoll,EPOLL_CTL_ADD,*sock,&event) < 0)
-    THROW_ERRNO("epoll_ctl()");
+  PCALL(epoll_ctl)(epoll,EPOLL_CTL_ADD,fd,&event);
 }
 
-file_desc server::accept() {
-  sockaddr_in addr;
-  socklen_t addr_size = sizeof(addr);
-  int new_socket = ::accept(
-    *main_socket, reinterpret_cast<sockaddr*>(&addr), &addr_size
-  );
-  if (new_socket < 0) THROW_ERRNO("accept()");
-  return new_socket;
-}
-
-bool server::accept(file_desc& socket) {
-  if (socket == main_socket) {
-    socket = accept();
-    return true;
-  }
-  return false;
-}
-
-int server::wait() {
-  const int n = ::epoll_wait(*epoll,epoll_events,nevents_max,-1);
-  if (n < 0) THROW_ERRNO("epoll_wait()");
-  return n;
-}
-
-file_desc server::check_event() {
-  auto& e = epoll_events[--nevents];
-  const auto flags = e.events;
-  if (flags & EPOLLERR) ERROR("EPOLLERR");
-  if (flags & EPOLLHUP) ERROR("EPOLLHUP");
-  if (!(flags & EPOLLIN)) ERROR("not EPOLLIN");
-
-  return e.data.fd;
-}
-
-void server::loop() {
+void server::loop() noexcept {
   for (;;) {
-    try {
-      INFO("35;1","Waiting for events");
-      nevents = wait();
-      INFO("35;1","notify_all");
-      cv.notify_all();
-      // main_mutex.lock(); // wait for events to be consumed
-    } catch (const std::exception& e) {
-      std::cerr << "\033[31m" << e.what() << "\033[0m\n";
+    auto n = PCALLR(epoll_wait)(
+      epoll, epoll_events, n_epoll_events, epoll_timeout);
+    while (n > 0) {
+      try {
+        const auto& e = epoll_events[--n];
+        socket fd = e.data.fd;
+
+        const auto flags = e.events;
+        if (flags & EPOLLHUP || flags & EPOLLERR || !(flags & EPOLLIN)) {
+          fd.close();
+        } else if (fd == main_socket) {
+          for (;;) {
+            sockaddr_in addr;
+            socklen_t addr_size = sizeof(addr);
+            const int sock = ::accept(
+              main_socket, reinterpret_cast<sockaddr*>(&addr), &addr_size);
+            if (sock < 0) {
+              if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+              else THROW_ERRNO("accept()");
+            }
+
+            nonblock(sock);
+            epoll_add(sock);
+          }
+        } else {
+          queue.push(fd);
+        }
+      } catch (const std::exception& e) {
+        std::cerr << "\033[31m" << e.what() << "\033[0m" << std::endl;
+      }
     }
   }
 }
 
-}
+} // end namespace ivanp

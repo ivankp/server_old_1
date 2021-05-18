@@ -1,7 +1,7 @@
-#include "server/http.hh"
+#include "http.hh"
 
-#include <vector>
-#include <algorithm>
+#include <iostream>
+#include <cstdlib>
 
 #include "server/socket.hh"
 #include "local_fd.hh"
@@ -12,52 +12,26 @@
 #include "debug.hh"
 
 namespace ivanp::http {
-namespace {
 
-struct mimes_dict {
-  std::string s;
-  std::vector<const char*> m;
-
-  mimes_dict(const char* filename): s(whole_file(filename)) {
-    size_t nlines = 0;
-    for (char c : s) if (c=='\n') ++nlines;
-    if (s.back()!='\n') ++nlines;
-    m.reserve(nlines);
-    for (char *a=s.data(), *b; ; ) {
-      a += strspn(a," \t\r\n"); // trim preceding blanks
-      if (!*a) break; // end
-      if (*a=='#') { // comment
-        a += strcspn(a+1,"\n");
-        continue;
-      }
-      b = a + strcspn(a," \t\r\n"); // end of key
-      if (strchr("\r\n",*b)) ERROR(filename); // no value
-      *b = '\0';
-      const char* v1 = ++b;
-      b += strspn(b," \t"); // trim blanks before value
-      if (strchr("\r\n",*b)) ERROR(filename); // no value
-      const char* v2 = b;
-      b += strcspn(b,"\r\n"); // move to end of line
-      while (strchr(" \t",*--b)); // trim trailing blanks
-      if (!*++b) break; // end
-      *b = '\0';
-      ++b;
-      if (v1!=v2) memmove(v1,v2,b-v2); // move value next to key
-      m.push_back(a);
-      a = b;
-    }
-    std::sort(m.begin(),m.end(),chars_less{});
+const std::map<const char*,const char*,chars_less> mimes = []{
+  static constexpr auto filename = "config/mimes";
+  static auto s = whole_file(filename);
+  std::map<const char*,const char*,chars_less> mimes;
+  for (char *a=s.data(), *b, *c, *const end=a+s.size(); ; ) {
+    ctrim(a,end,' ','\t','\n','\0');
+    if (a==end) break;
+    b = static_cast<char*>(memchr(a,' ',end-a));
+    if (!b || b+1==end) ERROR(filename);
+    *b = '\0';
+    ctrim(++b,end,' ','\t','\n','\0');
+    c = static_cast<char*>(memchr(b,'\n',end-b));
+    mimes[a] = b;
+    if (!c) break;
+    *c = '\0';
+    a = c+1;
   }
-} const mimes_dict("config/mimes");
-
-}
-
-const char* mimes(const char* ext) const noexcept {
-  const auto end = mimes_dict.m.end();
-  const auto it = std::lower_bound(mimes_dict.m.begin(),end,chars_less{});
-  if (it==end || chars_less{}(ext,*it)) return nullptr;
-  return *it;
-}
+  return mimes;
+}();
 
 const std::map<int,const char*> status_codes {
   {400,"HTTP/1.1 400 Bad Request\r\n\r\n"},
@@ -70,16 +44,6 @@ const std::map<int,const char*> status_codes {
   {500,"HTTP/1.1 500 Internal Server Error\r\n\r\n"},
   {501,"HTTP/1.1 501 Not Implemented\r\n\r\n"}
 };
-
-std::string header(
-  std::string_view mime, size_t len, std::string_view more
-) {
-  return cat(
-    "HTTP/1.1 200 OK\r\n"
-    "Content-Type: ", mime, "\r\n"
-    "Content-Length: ", std::to_string(len), "\r\n",
-    more, "\r\n");
-}
 
 request::request(
   const socket sock, char* buffer, size_t size
@@ -246,48 +210,119 @@ form_data::form_data(std::string_view str, bool q) noexcept: mem(str) {
   }
 }
 
-size_t read_buffer_size = 1 << 24;
+std::string header(
+  std::string_view mime, size_t len, std::string_view more
+) {
+  return cat(
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: ", mime, "\r\n"
+    "Content-Length: ", std::to_string(len), "\r\n",
+    more, "\r\n");
+}
 
-void send_file(socket sock, const char* name, bool gz) {
-  const char *ext = strrchr(name,'.'),
-             *mime = "text/plain; charset=UTF-8";
-  gz = gz && [ext](const auto*... x){
-    return ( strcmp(ext,x) && ... );
-  }("jpg","png","webp","gif");
-  try {
-    const auto cf = file_cache(name,gz);
-    const auto header = http::header(mime, cf.size,
-      cf.gz ? "Content-Encoding: gzip\r\n" : ""),
-    if (cf.data || !cf.size) { // send cached file
-      sock << cat(header,cf);
-    } else { // read and send
-      char* const buf = malloc(read_buffer_size);
-      scope_guard buffer_free([buf]{ free(buf); });
-      gz = false; // TODO: gzip
-      if (gz) {
-      } else {
-        // TODO: try again with sendfile()
-        // https://stackoverflow.com/q/1936037/2640636
-        size_t unread = cf.size;
-        memcpy(buf,header.data(),header.size());
-        size_t nread = PCALLR(read)(cf.fd, buf+header.size(),
-          std::min(unread,read_buffer_size-header.size()));
-        unread -= nread;
-        sock.write(buf,header.size()+nread);
-        while (unread) {
-          nread = PCALLR(read)(cf.fd, buf, std::min(unread,read_buffer_size));
-          unread -= nread;
-          sock.write(buf,nread);
+// send whole file --------------------------------------------------
+void send_file(socket sock, const char* name, bool gzok) {
+  scope_fd f1 = ::open(name, O_RDONLY);
+  struct stat s1;
+  if (f1 == -1)
+    HTTP_ERROR(404,"open(",name,"): ",std::strerror(errno));
+  if (::fstat(f1, &s1) == -1)
+    HTTP_ERROR(404,"fstat(): ",std::strerror(errno));
+  if (!S_ISREG(s1.st_mode))
+    HTTP_ERROR(404,name," is not a regular file");
+
+  const char *mime = "text/plain; charset=UTF-8",
+             *ext = strrchr(name,'.');
+  if (ext) {
+    const auto it = mimes.find(++ext);
+    if (it != mimes.end()) mime = it->second;
+  }
+
+  // TODO: this is a hack
+  if (s1.st_size >= ivanp::file_cache_max_size) {
+    sock << header(mime, s1.st_size) << whole_file(name);
+    return;
+  }
+
+  const char* encoding = "";
+  std::string name_gz;
+
+  if (gzok && [ext](const auto*... x){
+    return ( ... && strcmp(ext,x) );
+  }("jpg","png","webp","gif")){ // exclude extensions
+    name_gz = cat("cache/gz/",name,".gz");
+    scope_fd f2 = ::open(name_gz.c_str(), O_RDONLY);
+    struct stat s2;
+    if (f2 != -1) {
+      if (::fstat(f2, &s2) == -1) {
+        REDERR "fstat(): " << std::strerror(errno);
+      } else if (!S_ISREG(s2.st_mode)) {
+        REDERR << name_gz << " is not a regular file";
+      } else if (s1.st_mtime < s2.st_mtime) { // send gz file from cache
+        goto send_gz;
+      } else { // gz file needs updating
+        if (::unlink(name_gz.c_str()) == -1)
+          REDERR "unlink(): " << std::strerror(errno)
+            << "\033[0m" << std::endl;
+        goto update_gz;
+      }
+      std::cerr << "\033[0m" << std::endl;
+    } else { // create gz file
+      for (char* p=name_gz.data(); *p && (p=strchr(p,'/')); ++p) {
+        *p = '\0';
+        if (::mkdir(name_gz.data(),0755) == -1 && errno != EEXIST) {
+          REDERR "mkdir(): " << std::strerror(errno) << "\033[0m" << std::endl;
+          goto failed_gz;
+        }
+        *p = '/';
+      }
+update_gz:
+      if ((f2 = ::open(name_gz.c_str(), O_CREAT|O_RDWR|O_TRUNC, 0644)) != -1) {
+        try {
+          s2.st_size = zlib::deflate_f(f1,f2,s1.st_size);
+          PCALL(lseek)(f2,0,SEEK_SET);
+        } catch (const std::exception& e) {
+          std::cerr << "\033[31m" << e.what() << "\033[0m" << std::endl;
+          f2 = { };
+        }
+        if (f2 != -1) {
+send_gz:
+          // f1 = std::move(f2); // closes f1
+          s1.st_size = s2.st_size;
+          name = name_gz.c_str();
+          encoding = "Content-Encoding: gzip\r\n";
         }
       }
     }
-  } catch (const std::exception& e) {
-    HTTP_ERROR(404,"file ",name,":\n",e.what());
+failed_gz: ;
   }
+
+  // TODO: TCP_CORK
+  if (const auto f = file_cache(name)) {
+    sock << header(mime, s1.st_size, encoding) << *f;
+  } else {
+    // TODO: send file without caching
+    HTTP_ERROR(500,name," cannot be cached");
+  }
+  // { off_t offset = 0;
+  //   size_t size = s1.st_size;
+  //   while (size) {
+  //     const auto ret = ::sendfile(sock, f1, &offset, size);
+  //     if (ret < 0) {
+  //       if (errno == EAGAIN || errno == EWOULDBLOCK) {
+  //         // ::sched_yield();
+  //         std::this_thread::yield();
+  //         continue;
+  //       } else THROW_ERRNO("sendfile()");
+  //     } else if (ret == 0) break; // NOTE: zero return means done
+  //     offset += ret;
+  //     size -= ret;
+  //   }
+  // }
 }
 
-void send_str( // TODO: rework
-  socket s, std::string_view str, std::string_view mime, bool gz
+void send_str(
+  socket fd, std::string_view str, std::string_view mime, bool gzok
 ) {
   if (!mime.empty()) {
     const auto it = mimes.find(mime);
@@ -297,11 +332,11 @@ void send_str( // TODO: rework
 
   if (gzok) {
     const auto gz = zlib::deflate_s(str);
-    s << cat(
+    fd << cat(
       http::header(mime,gz.size(),"Content-Encoding: gzip\r\n"),
       std::string_view(gz.data(),gz.size()) );
   } else {
-    s << cat(http::header(mime,str.size()), str);
+    fd << cat(http::header(mime,str.size()), str);
   }
 }
 

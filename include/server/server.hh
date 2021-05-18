@@ -2,12 +2,14 @@
 #define IVANP_SERVER_HH
 
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 #include <thread>
-#include <condition_variable>
 #include <iostream>
+#include <utility>
 
-#include "file_desc.hh"
+#include "server/socket.hh"
+#include "thread_safe_queue.hh"
 
 struct epoll_event; // <sys/epoll.h>
 
@@ -18,48 +20,59 @@ public:
   using port_t = uint16_t;
 
 private:
-  uniq_file_desc main_socket, epoll;
-  unsigned nevents_max, nevents = 0;
-  epoll_event* epoll_events;
-  std::mutex worker_mutex; //, main_mutex;
-  std::condition_variable cv;
+  uniq_socket main_socket, epoll;
   std::vector<std::thread> threads;
+  thread_safe_queue<socket> queue;
+  epoll_event* epoll_events;
+  const unsigned n_epoll_events;
+  const int epoll_timeout;
+
+  struct thread_buffer {
+    char* m = nullptr;
+    size_t size = 0;
+
+    thread_buffer(size_t size) noexcept
+    : m(reinterpret_cast<char*>(malloc(size))), size(size) { }
+    ~thread_buffer() { free(m); }
+    thread_buffer() noexcept = default;
+    thread_buffer(const thread_buffer&) = delete;
+    thread_buffer& operator=(const thread_buffer&) = delete;
+    thread_buffer(thread_buffer&& o) noexcept
+    : m(o.m), size(o.size) {
+      o.m = nullptr;
+      o.size = 0;
+    }
+    thread_buffer& operator=(thread_buffer&& o) noexcept {
+      std::swap(m,o.m);
+      std::swap(size,o.size);
+      return *this;
+    }
+  };
+
+  void epoll_add(int);
 
 public:
-  server(port_t port, unsigned nevents_max);
+  server(port_t port, unsigned epoll_buffer_size, int epoll_timeout);
   ~server();
 
-  file_desc accept();
-  bool accept(file_desc&);
-
-  void loop();
-  [[ nodiscard ]] int wait();
-
-  void epoll_add(file_desc);
-  file_desc check_event();
+  void loop() noexcept;
 
   template <typename F>
   void operator()(
     unsigned nthreads, size_t buffer_size,
     F&& worker_function
-  ) {
+  ) noexcept {
     threads.reserve(threads.size()+nthreads);
     for (unsigned i=0; i<nthreads; ++i) {
-      threads.emplace_back([ this,
-        worker_function = std::forward<F>(worker_function),
-        buffer = std::vector<char>(buffer_size)
+      threads.emplace_back([ &queue = this->queue,
+        worker_function,
+        buffer = thread_buffer(buffer_size)
       ]() mutable {
         for (;;) {
-          file_desc socket;
           try {
-            { std::unique_lock lock(worker_mutex);
-              while (nevents == 0) cv.wait(lock); // wait implies yield
-              socket = check_event();
-              // if (nevents == 0) main_mutex.unlock();
-            }
-            worker_function(*this, socket, buffer);
+            worker_function(queue.pop(), buffer.m, buffer.size);
           } catch (const std::exception& e) {
-            std::cerr << "\033[31;1m" << e.what() << "\033[0m\n";
+            std::cerr << "\033[31;1m" << e.what() << "\033[0m" << std::endl;
           }
         }
       });
